@@ -36,34 +36,6 @@ fun WebRepostCleanerScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
 
-        // Warning banner
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF2A0E1B)),
-            color = Color(0xFF2A0E1B)
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "HIGH RISK FEATURE – READ CAREFULLY",
-                    color = Color(0xFFFF2E63),
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "TikTok detects automation → account restriction / ban possible.\n" +
-                            "Use slowly (manual clicks or very slow auto).\n" +
-                            "Best for <50 reposts. No guarantees.",
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-        }
-
-        // Auto-remove toggle (very risky – use with caution)
         Row(
             modifier = Modifier
                 .fillMaxWidth()

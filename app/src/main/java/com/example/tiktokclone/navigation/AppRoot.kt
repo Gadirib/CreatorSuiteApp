@@ -1,10 +1,8 @@
 package com.example.tiktokclone.navigation
 
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
+import com.example.tiktokclone.data.tiktok.TikTokSessionManager   // ← make sure this import exists
 import com.example.tiktokclone.ui.screens.action.ActionScreen
 import com.example.tiktokclone.ui.screens.cleaner.CleanerScreen
 import com.example.tiktokclone.ui.screens.content.ContentScreen
@@ -17,23 +15,44 @@ import com.example.tiktokclone.ui.screens.rec.RecScreen
 import com.example.tiktokclone.ui.screens.saved.SavedScreen
 import com.example.tiktokclone.ui.screens.settings.SettingsScreen
 
-
 @Composable
 fun AppRoot() {
-    // Visual-only demo app: no backend and no auth.
-    var screen by remember { mutableStateOf(AppScreen.Cover) }
+    val context = LocalContext.current
 
+    // This is the key part: decide starting screen based on auth status
+    var screen by remember {
+        mutableStateOf(
+            if (TikTokSessionManager.isLoggedIn(context)) {
+                AppScreen.Content   // already authorized → go to main screen
+            } else {
+                AppScreen.Login     // not authorized → force login first
+            }
+        )
+    }
+
+    // Optional: you can keep a short splash/cover if you want,
+    // but document wants login to be the entry point when not authorized
     when (screen) {
+
+        AppScreen.Login -> LoginScreen(
+            onLoginSuccess = {
+                screen = AppScreen.Content   // after login → main screen
+            }
+        )
+
         AppScreen.Cover -> CoverScreen(
-            onTimeout = { screen = AppScreen.Action }
+            onTimeout = {
+                // If you still want Cover as splash → check auth again after timeout
+                screen = if (TikTokSessionManager.isLoggedIn(context)) {
+                    AppScreen.Content
+                } else {
+                    AppScreen.Login
+                }
+            }
         )
 
         AppScreen.Action -> ActionScreen(
             onConnect = { screen = AppScreen.Content }
-        )
-
-        AppScreen.Login -> LoginScreen(
-            onLoginSuccess = { screen = AppScreen.Content }
         )
 
         AppScreen.Content -> ContentScreen(
@@ -67,13 +86,14 @@ fun AppRoot() {
 
         AppScreen.Cleaner -> CleanerScreen(
             onBackToContent = { screen = AppScreen.Content },
-            onOpenCreate = { screen = AppScreen.CreateSheet },
-            onOpenSettings = { screen = AppScreen.Settings }
+            onOpenCreate    = { screen = AppScreen.CreateSheet },
+            onOpenSettings  = { screen = AppScreen.Settings }
         )
 
         AppScreen.Settings -> SettingsScreen(
             onClose = { screen = AppScreen.Content },
             onLoggedOut = {
+                // Important: after logout → force login again
                 screen = AppScreen.Login
             }
         )

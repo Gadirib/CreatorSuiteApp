@@ -38,6 +38,7 @@ android {
 
 dependencies {
     implementation(libs.androidx.foundation)
+    implementation(libs.androidx.appcompat)
     val cameraXVersion = "1.4.2"
     val media3Version = "1.5.1"
     implementation(libs.androidx.core.ktx)
@@ -72,4 +73,5 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0") // useful for Logcat
     implementation("androidx.browser:browser:1.7.0")
+    implementation("org.json:json:20231013")
 }

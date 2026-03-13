@@ -1,14 +1,10 @@
 package com.example.tiktokclone.ui.screens.login
 
+import android.content.Context
 import android.util.Log
-import android.webkit.CookieManager
-import android.webkit.WebChromeClient
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import android.webkit.*
+import android.widget.Toast
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,18 +12,15 @@ import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.*
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.tiktokclone.R
@@ -35,42 +28,46 @@ import com.example.tiktokclone.data.tiktok.TikTokSessionManager
 import com.example.tiktokclone.ui.theme.Pink40
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import android.widget.Toast
-import androidx.compose.ui.viewinterop.AndroidView
 
 @Composable
 fun LoginScreen(
     onLoginSuccess: () -> Unit
 ) {
+
     val context = LocalContext.current
     var showWebView by remember { mutableStateOf(false) }
     var isCheckingSession by remember { mutableStateOf(false) }
+
     val coroutineScope = rememberCoroutineScope()
 
-    // ── Your original beautiful UI ──
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
             .padding(16.dp)
     ) {
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color(0xFFEDEDED), RoundedCornerShape(22.dp))
                 .padding(horizontal = 20.dp, vertical = 14.dp)
         ) {
+
             Row(verticalAlignment = Alignment.CenterVertically) {
+
                 Icon(
                     imageVector = Icons.Outlined.Close,
-                    contentDescription = "Close",
+                    contentDescription = null,
                     tint = Color(0xFF2C2C2C),
                     modifier = Modifier.size(26.dp)
                 )
+
                 Spacer(Modifier.weight(1f))
+
                 Icon(
                     imageVector = Icons.AutoMirrored.Outlined.HelpOutline,
-                    contentDescription = "Help",
+                    contentDescription = null,
                     tint = Color(0xFF999999),
                     modifier = Modifier.size(24.dp)
                 )
@@ -96,20 +93,6 @@ fun LoginScreen(
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
-
-            LoginMethodRow(iconRes = R.drawable.ic_phone, text = "Use phone / email / username")
-            Spacer(modifier = Modifier.height(10.dp))
-            LoginMethodRow(iconRes = R.drawable.ic_facebook, text = "Continue with Facebook")
-            Spacer(modifier = Modifier.height(10.dp))
-            LoginMethodRow(iconRes = R.drawable.ic_apple, text = "Continue with Apple")
-            Spacer(modifier = Modifier.height(10.dp))
-            LoginMethodRow(iconRes = R.drawable.ic_google, text = "Continue with Google")
-            Spacer(modifier = Modifier.height(10.dp))
-            LoginMethodRow(iconRes = R.drawable.ic_x, text = "Continue with X")
-            Spacer(modifier = Modifier.height(10.dp))
-            LoginMethodRow(iconRes = R.drawable.ic_instagram, text = "Continue with Instagram")
-
             Spacer(modifier = Modifier.weight(1f))
 
             Button(
@@ -120,7 +103,12 @@ fun LoginScreen(
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF2E63))
             ) {
-                Text("Connect TikTok", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Connect TikTok",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -128,7 +116,12 @@ fun LoginScreen(
             Text(
                 text = buildAnnotatedString {
                     append("Don't have an account? ")
-                    withStyle(style = SpanStyle(color = Pink40, fontWeight = FontWeight.SemiBold)) {
+                    withStyle(
+                        style = SpanStyle(
+                            color = Pink40,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    ) {
                         append("Sign up")
                     }
                 },
@@ -140,80 +133,111 @@ fun LoginScreen(
         }
     }
 
-    // ── Real TikTok login WebView in full-screen dialog ──
     if (showWebView) {
+
         Dialog(
             onDismissRequest = { showWebView = false },
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White)
+            ) {
+
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
+
                         WebView(ctx).apply {
+
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             settings.databaseEnabled = true
-                            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                            settings.allowFileAccess = true
-                            settings.javaScriptCanOpenWindowsAutomatically = true
-                            settings.setSupportMultipleWindows(true)
-                            settings.userAgentString = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-                            CookieManager.getInstance().let { cm ->
-                                cm.setAcceptCookie(true)
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-                                    cm.setAcceptThirdPartyCookies(this, true)
-                                }
+
+                            settings.loadsImagesAutomatically = true
+                            settings.useWideViewPort = true
+                            settings.loadWithOverviewMode = true
+
+                            settings.mixedContentMode =
+                                WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                            settings.userAgentString =
+                                "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+
+                            settings.mediaPlaybackRequiresUserGesture = false
+                            settings.allowContentAccess = true
+                            settings.allowFileAccessFromFileURLs = true
+                            settings.allowUniversalAccessFromFileURLs = true
+
+
+                            val cookieManager = CookieManager.getInstance()
+
+                            cookieManager.setAcceptCookie(true)
+
+                            if (android.os.Build.VERSION.SDK_INT >= 21) {
+                                cookieManager.setAcceptThirdPartyCookies(this, true)
                             }
 
-                            webViewClient = object : WebViewClient() {
-                                override fun onPageFinished(view: WebView?, url: String?) {
-                                    super.onPageFinished(view, url)
-                                    Log.d("TikTokLogin", "Page loaded: $url")
+                            webChromeClient = WebChromeClient()
 
-                                    isCheckingSession = true
-                                    coroutineScope.launch {
-                                        var attempts = 0
-                                        while (attempts < 90 && showWebView) {  // ~3 dəqiqə max
-                                            delay(2000)
-                                            attempts++
-                                            CookieManager.getInstance().flush() // Cookies sync
-                                            val cookies = CookieManager.getInstance().getCookie("https://www.tiktok.com") ?: ""
-                                            Log.d("TikTokLoginCookies", cookies.take(200))
-                                            if (cookies.contains("sessionid") || cookies.contains("sessionid_ss")) {
-                                                val session = try { TikTokSessionManager.extractSessionInfo() } catch (e: Exception) {
-                                                    Log.e("TikTokLogin", "Session extraction failed", e)
-                                                    null
-                                                }
-                                                if (session != null) {
-                                                    TikTokSessionManager.saveSession(context, session)
+                            webViewClient = object : WebViewClient() {
+
+                                override fun onPageFinished(view: WebView?, url: String?) {
+
+                                    Log.d("TikTokLogin", "Page: $url")
+
+                                    if (!isCheckingSession) {
+
+                                        isCheckingSession = true
+
+                                        coroutineScope.launch {
+
+                                            var attempts = 0
+
+                                            while (attempts < 60 && showWebView) {
+
+                                                delay(2000)
+
+                                                attempts++
+
+                                                CookieManager.getInstance().flush()
+
+                                                if (checkTikTokSession(context)) {
+
                                                     showWebView = false
+
                                                     isCheckingSession = false
+
                                                     onLoginSuccess()
+
                                                     return@launch
                                                 }
                                             }
+
+                                            isCheckingSession = false
+
+                                            Toast.makeText(
+                                                context,
+                                                "Login failed. Try again.",
+                                                Toast.LENGTH_LONG
+                                            ).show()
                                         }
-                                        isCheckingSession = false
-                                        Toast.makeText(context, "Login timeout or failed. Try again.", Toast.LENGTH_LONG).show()
                                     }
+
                                 }
                             }
 
-                            webChromeClient = object : WebChromeClient() {
-                                override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
-                                    Log.d("WebViewJS", consoleMessage?.message() ?: "No message")
-                                    return true
-                                }
-                            }
-
-                            loadUrl("https://www.tiktok.com/login/phone-or-email/email")
+                            loadUrl(
+                                "https://www.tiktok.com/login?lang=en"
+                            )
                         }
+
                     }
                 )
 
-                // Loading overlay during session check
                 if (isCheckingSession) {
+
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -224,13 +248,15 @@ fun LoginScreen(
                     }
                 }
 
-                // Close button
                 IconButton(
                     onClick = { showWebView = false },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(16.dp)
-                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(50))
+                        .background(
+                            Color.Black.copy(alpha = 0.5f),
+                            RoundedCornerShape(50)
+                        )
                 ) {
                     Icon(Icons.Outlined.Close, null, tint = Color.White)
                 }
@@ -239,21 +265,25 @@ fun LoginScreen(
     }
 }
 
-// Your LoginMethodRow remains unchanged
-@Composable
-private fun LoginMethodRow(iconRes: Int, text: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(54.dp)
-            .background(Color(0xFFF0F0F0))
-            .border(1.dp, Color(0xFFD9D9D9))
-            .clickable { /* still fake */ },
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Spacer(Modifier.width(14.dp))
-        Image(painterResource(iconRes), null, Modifier.size(24.dp))
-        Spacer(Modifier.width(14.dp))
-        Text(text, color = Color(0xFF2C2C2C), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+
+suspend fun checkTikTokSession(
+    context: Context
+): Boolean {
+
+    val cookies =
+        CookieManager.getInstance().getCookie("https://www.tiktok.com") ?: ""
+
+    Log.d("TikTokCookies", cookies)
+
+    if (cookies.contains("sessionid")) {
+
+        val session = TikTokSessionManager.extractSessionInfo()
+
+        if (session != null) {
+            TikTokSessionManager.saveSession(context, session)
+            return true
+        }
     }
+
+    return false
 }

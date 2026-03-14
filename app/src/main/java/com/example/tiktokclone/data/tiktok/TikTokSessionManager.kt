@@ -30,11 +30,9 @@ object TikTokSessionManager {
 
     fun getSession(context: Context): TikTokSession? {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-
         val username = prefs.getString("username", null) ?: return null
         val secUid = prefs.getString("secUid", null) ?: return null
         val avatar = prefs.getString("avatarUrl", null)
-
         return TikTokSession(username, secUid, avatar)
     }
 
@@ -46,11 +44,15 @@ object TikTokSessionManager {
             .apply()
     }
 
+    fun clearSession(context: Context) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit().clear().apply()
+    }
+
     private fun getCookies(): String {
         return CookieManager.getInstance().getCookie("https://www.tiktok.com") ?: ""
     }
 
-    private fun hasSession(): Boolean {
+    fun hasSession(): Boolean {
         val cookies = getCookies()
         return cookies.contains("sessionid") ||
                 cookies.contains("sessionid_ss") ||
@@ -65,60 +67,130 @@ object TikTokSessionManager {
         }
 
         val cookies = getCookies()
-
-        Log.d("TikTokSession", "Cookies: $cookies")
+        Log.d("TikTokSession", "Has cookies, extracting session...")
 
         val client = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .build()
 
-        val request = Request.Builder()
-            .url("https://www.tiktok.com/")
-            .header("Cookie", cookies)
-            .header("User-Agent", UA)
-            .build()
-
+        // ✅ Use /passport/web/account/info/ first — faster and more reliable than parsing HTML
         try {
+            val accountRequest = Request.Builder()
+                .url("https://www.tiktok.com/passport/web/account/info/")
+                .header("Cookie", cookies)
+                .header("User-Agent", UA)
+                .header("Referer", "https://www.tiktok.com/")
+                .build()
 
-            val html = client.newCall(request).execute().body?.string() ?: return@withContext null
+            val accountResponse = client.newCall(accountRequest).execute()
+            val accountBody = accountResponse.body?.string() ?: ""
+            Log.d("TikTokSession", "AccountInfo response: $accountBody")
+
+            val accountJson = JSONObject(accountBody)
+            val data = accountJson.optJSONObject("data")
+
+            if (data != null) {
+                val username = data.optString("username").takeIf { it.isNotEmpty() }
+
+                if (username != null) {
+                    // ✅ Now get secUid from profile HTML — correct JSON path from document
+                    val secUid = fetchSecUid(client, cookies, username)
+
+                    val avatar = data.optString("avatar_url").takeIf { it.isNotEmpty() }
+                        ?: data.optString("avatar_larger").takeIf { it.isNotEmpty() }
+
+                    Log.d("TikTokSession", "✅ username=$username secUid=$secUid")
+                    return@withContext TikTokSession(username, secUid ?: "", avatar)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("TikTokSession", "AccountInfo failed, falling back to HTML parse", e)
+        }
+
+        // ✅ Fallback: parse HTML from tiktok.com homepage
+        try {
+            val htmlRequest = Request.Builder()
+                .url("https://www.tiktok.com/")
+                .header("Cookie", cookies)
+                .header("User-Agent", UA)
+                .build()
+
+            val html = client.newCall(htmlRequest).execute().body?.string()
+                ?: return@withContext null
 
             val scriptStart = html.indexOf("id=\"__UNIVERSAL_DATA_FOR_REHYDRATION__\"")
 
             if (scriptStart == -1) {
-                Log.d("TikTokSession", "Universal data not found")
+                Log.d("TikTokSession", "Universal data tag not found in HTML")
                 return@withContext null
             }
 
             val jsonStart = html.indexOf("{", scriptStart)
             val jsonEnd = html.indexOf("</script>", jsonStart)
 
-            val jsonStr = html.substring(jsonStart, jsonEnd).trim()
+            if (jsonStart == -1 || jsonEnd == -1) return@withContext null
 
+            val jsonStr = html.substring(jsonStart, jsonEnd).trim()
             val json = JSONObject(jsonStr)
 
+            // ✅ FIXED: Correct JSON path — __DEFAULT_SCOPE__ → webapp.user-detail → userInfo → user
+            // Previous code tried json.getJSONObject("userInfo") directly — WRONG, always threw exception
             val userInfo = json
+                .getJSONObject("__DEFAULT_SCOPE__")
+                .getJSONObject("webapp.user-detail")
                 .getJSONObject("userInfo")
                 .getJSONObject("user")
 
             val username = userInfo.getString("uniqueId")
             val secUid = userInfo.getString("secUid")
+            var avatar = userInfo.optString("avatarLarger").takeIf { it.isNotEmpty() }
+                ?: userInfo.optString("avatarMedium").takeIf { it.isNotEmpty() }
+                ?: userInfo.optString("avatarThumb").takeIf { it.isNotEmpty() }
 
-            var avatar = userInfo.optString("avatarLarger")
-
-            if (avatar.isNullOrEmpty()) avatar = userInfo.optString("avatarMedium")
-            if (avatar.isNullOrEmpty()) avatar = userInfo.optString("avatarThumb")
-
-            Log.d("TikTokSession", "USERNAME: $username")
-            Log.d("TikTokSession", "SECUID: $secUid")
-
+            Log.d("TikTokSession", "✅ (HTML fallback) username=$username")
             TikTokSession(username, secUid, avatar)
 
         } catch (e: Exception) {
-
-            Log.e("TikTokSession", "Session extract error", e)
+            Log.e("TikTokSession", "HTML fallback also failed", e)
             null
+        }
+    }
 
+    // ✅ Fetch secUid by parsing profile page — exact path from document §3 step 6
+    private suspend fun fetchSecUid(
+        client: OkHttpClient,
+        cookies: String,
+        username: String
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("https://www.tiktok.com/@$username")
+                .header("Cookie", cookies)
+                .header("User-Agent", UA)
+                .build()
+
+            val html = client.newCall(request).execute().body?.string() ?: return@withContext null
+
+            val scriptStart = html.indexOf("id=\"__UNIVERSAL_DATA_FOR_REHYDRATION__\"")
+            if (scriptStart == -1) return@withContext null
+
+            val jsonStart = html.indexOf("{", scriptStart)
+            val jsonEnd = html.indexOf("</script>", jsonStart)
+            if (jsonStart == -1 || jsonEnd == -1) return@withContext null
+
+            val json = JSONObject(html.substring(jsonStart, jsonEnd).trim())
+
+            // ✅ Path from document: __DEFAULT_SCOPE__ → webapp.user-detail → userInfo → user → secUid
+            json.getJSONObject("__DEFAULT_SCOPE__")
+                .getJSONObject("webapp.user-detail")
+                .getJSONObject("userInfo")
+                .getJSONObject("user")
+                .getString("secUid")
+
+        } catch (e: Exception) {
+            Log.e("TikTokSession", "fetchSecUid failed", e)
+            null
         }
     }
 }

@@ -74,4 +74,5 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0") // useful for Logcat
     implementation("androidx.browser:browser:1.7.0")
     implementation("org.json:json:20231013")
+    implementation("io.coil-kt:coil-compose:2.6.0")
 }

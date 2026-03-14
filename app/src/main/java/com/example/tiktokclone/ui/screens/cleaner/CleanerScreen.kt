@@ -1,39 +1,27 @@
 package com.example.tiktokclone.ui.screens.cleaner
 
-import android.content.Context
 import android.widget.Toast
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.*
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import com.example.tiktokclone.data.tiktok.TikTokApiClient
+import androidx.compose.ui.unit.*
+import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.example.tiktokclone.data.tiktok.TikTokSessionManager
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import org.json.JSONObject
-import kotlin.random.Random
-import kotlin.time.Duration.Companion.seconds
+import com.example.tiktokclone.ui.components.BottomNav
 
-// Minimal repost model (expand later with more fields from your document)
-data class TikTokRepost(
-    val id: String,             // aweme_id for delete
-    val desc: String,
-    val authorUsername: String,
-    val playCount: Int,
-    val coverUrl: String? = null
-)
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CleanerScreen(
     onBackToContent: () -> Unit,
@@ -41,7 +29,13 @@ fun CleanerScreen(
     onOpenSettings: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val vm: UnRepostViewModel = viewModel()
+
+    val reposts by vm.reposts.collectAsState()
+    val selectedIds by vm.selectedIds.collectAsState()
+    val loadState by vm.loadState.collectAsState()
+    val deleteProgress by vm.deleteProgress.collectAsState()
+    val deletionsToday by vm.deletionsToday.collectAsState()
 
     val session = TikTokSessionManager.getSession(context)
     if (session == null) {
@@ -49,242 +43,129 @@ fun CleanerScreen(
         return
     }
 
-    val apiClient = remember { TikTokApiClient(context) }
-
-    var reposts by remember { mutableStateOf<List<TikTokRepost>>(emptyList()) }
-    var selectedIds by remember { mutableStateOf(setOf<String>()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var deletionsToday by remember { mutableIntStateOf(getDeletionsToday(context)) }
-    var isDeleting by remember { mutableStateOf(false) }
-
-    // Load reposts with pagination & rate limiting
-    LaunchedEffect(session.secUid) {
-        isLoading = true
-        errorMessage = null
-        val allReposts = mutableListOf<TikTokRepost>()
-        var cursor = 0
-        var consecutiveErrors = 0
-
-        while (true) {
-            val json = apiClient.getReposts(session.secUid, cursor) ?: run {
-                consecutiveErrors++
-                if (consecutiveErrors >= 5) {
-                    errorMessage = "Too many network errors. Stopping."
-                    break
-                }
-                delay(3000)
-                continue
-            }
-
-            consecutiveErrors = 0
-
-            if (json.optInt("statusCode", -1) != 0) break
-
-            val items = json.optJSONArray("itemList") ?: break
-            repeat(items.length()) { i ->
-                val item = items.getJSONObject(i)
-                val video = item.optJSONObject("video") ?: return@repeat
-
-                allReposts += TikTokRepost(
-                    id = item.optString("id"),
-                    desc = item.optString("desc", "(no description)"),
-                    authorUsername = item.optJSONObject("author")?.optString("uniqueId") ?: "?",
-                    playCount = video.optJSONObject("stats")?.optInt("playCount") ?: 0,
-                    coverUrl = video.optString("cover")
-                )
-            }
-
-            val hasMore = json.optBoolean("hasMore", false)
-            if (!hasMore) break
-
-            cursor = json.optInt("cursor", cursor + 30)
-            delay(5000) // document: 5 seconds between pages
+    LaunchedEffect(Unit) {
+        if (loadState is LoadState.Idle) {
+            // ✅ init() on Main thread — WebView creation requires Main thread
+            // loadReposts() starts immediately; TikTokApiService will wait
+            // internally until the WebView fires onPageFinished before calling fetch()
+            vm.initApi(context)
+            vm.loadReposts()
         }
-
-        reposts = allReposts
-        isLoading = false
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Clean Reposts") },
-                navigationIcon = {
-                    IconButton(onClick = onBackToContent) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
+            Spacer(Modifier.height(52.dp))
+
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBackToContent) {
+                    Icon(Icons.Outlined.ArrowBack, null, tint = Color.White)
+                }
+                Text("CLEAN REPOSTS", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, letterSpacing = 2.sp)
+                Spacer(Modifier.weight(1f))
+                if (reposts.isNotEmpty() && loadState is LoadState.Success) {
+                    TextButton(onClick = { if (selectedIds.size == reposts.size) vm.clearSelection() else vm.selectAll() }) {
+                        Text(if (selectedIds.size == reposts.size) "Deselect all" else "Select all", color = Color(0xFFFF2E63), fontSize = 13.sp)
                     }
                 }
-            )
-        },
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = false,
-                    onClick = onOpenCreate,
-                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    label = { Text("Create") }
-                )
-                NavigationBarItem(
-                    selected = false,
-                    onClick = onOpenSettings,
-                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                    label = { Text("Settings") }
-                )
             }
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            when {
-                isLoading -> {
-                    Spacer(Modifier.weight(1f))
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(24.dp))
-                    Text("Loading your reposts…")
-                    Spacer(Modifier.weight(1f))
-                }
 
-                errorMessage != null -> {
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        errorMessage ?: "Unknown error",
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(Modifier.weight(1f))
-                }
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Deletions today: $deletionsToday / ${vm.dailyLimit}", color = Color(0xFF8A8FA6), fontSize = 12.sp)
+                Spacer(Modifier.weight(1f))
+                if (reposts.isNotEmpty()) Text("${reposts.size} reposts", color = Color(0xFF8A8FA6), fontSize = 12.sp)
+            }
 
-                reposts.isEmpty() -> {
-                    Spacer(Modifier.weight(1f))
-                    Text("No reposts found or already cleaned.")
-                    Spacer(Modifier.weight(1f))
-                }
-
-                else -> {
-                    Text(
-                        "Deletions today: $deletionsToday / 50",
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.padding(vertical = 12.dp)
-                    )
-
-                    LazyColumn(modifier = Modifier.weight(1f)) {
-                        items(reposts) { repost ->
-                            val selected = repost.id in selectedIds
-                            Card(
-                                onClick = {
-                                    selectedIds = if (selected) selectedIds - repost.id else selectedIds + repost.id
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 6.dp)
+            Box(modifier = Modifier.weight(1f)) {
+                when (val s = loadState) {
+                    is LoadState.Loading -> Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = Color(0xFFFF2E63))
+                        Spacer(Modifier.height(16.dp))
+                        Text("Loading reposts…", color = Color(0xFF8A8FA6))
+                    }
+                    is LoadState.Error -> Column(modifier = Modifier.align(Alignment.Center).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(s.message, color = Color(0xFFFF2E63), textAlign = TextAlign.Center)
+                        Spacer(Modifier.height(16.dp))
+                        Button(onClick = { vm.initApi(context); vm.loadReposts() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF2E63))
+                        ) { Text("Retry") }
+                    }
+                    is LoadState.Success -> {
+                        if (reposts.isEmpty()) {
+                            Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("No reposts found", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(8.dp))
+                                Text("Your feed is clean!", color = Color(0xFF8A8FA6))
+                            }
+                        } else {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(3),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxSize()
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Checkbox(
-                                        checked = selected,
-                                        onCheckedChange = null
-                                    )
-                                    Spacer(Modifier.width(12.dp))
-                                    Column {
-                                        Text(
-                                            text = repost.desc.take(80).let { if (repost.desc.length > 80) "$it..." else it },
-                                            maxLines = 2
-                                        )
-                                        Text(
-                                            "@${repost.authorUsername} • ${repost.playCount} plays",
-                                            style = MaterialTheme.typography.bodySmall
-                                        )
-                                    }
+                                items(reposts, key = { it.id }) { repost ->
+                                    RepostGridCell(repost = repost, selected = repost.id in selectedIds, onClick = { vm.toggleSelect(repost.id) })
                                 }
                             }
                         }
                     }
+                    else -> {}
+                }
 
-                    if (selectedIds.isNotEmpty() && !isDeleting) {
-                        val count = selectedIds.size
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    isDeleting = true
-                                    var success = 0
-                                    var failed = 0
-                                    var consecFails = 0
-
-                                    selectedIds.forEach { id ->
-                                        if (deletionsToday >= 50) {
-                                            Toast.makeText(context, "Daily limit (50) reached", Toast.LENGTH_LONG).show()
-                                            return@forEach
-                                        }
-
-                                        var ok = false
-                                        repeat(2) {
-                                            try {
-                                                apiClient.deleteRepost(id)
-                                                ok = true
-                                                return@repeat
-                                            } catch (e: Exception) {
-                                                delay(Random.nextLong(1500, 4000))
-                                            }
-                                        }
-
-                                        if (ok) {
-                                            success++
-                                            deletionsToday++
-                                            saveDeletionsToday(context, deletionsToday)
-                                            consecFails = 0
-                                        } else {
-                                            failed++
-                                            consecFails++
-                                            if (consecFails >= 5) {
-                                                errorMessage = "Too many failures. Stopping."
-                                                return@launch
-                                            }
-                                        }
-
-                                        delay(Random.nextLong(1000, 3000)) // document rate limit
-                                    }
-
-                                    Toast.makeText(
-                                        context,
-                                        "Deleted $success of $count (failed: $failed)",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-
-                                    selectedIds = emptySet()
-                                    isDeleting = false
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp)
-                        ) {
-                            Text("Delete $count selected")
+                if (deleteProgress != null) {
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = Color(0xFFFF2E63))
+                            Spacer(Modifier.height(16.dp))
+                            Text(deleteProgress ?: "", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
+
+            if (selectedIds.isNotEmpty() && deleteProgress == null) {
+                val canDelete = deletionsToday < vm.dailyLimit
+                Button(
+                    onClick = {
+                        if (!canDelete) { Toast.makeText(context, "Daily limit reached", Toast.LENGTH_LONG).show(); return@Button }
+                        vm.deleteSelected { deleted, failed ->
+                            Toast.makeText(context, if (failed == 0) "Deleted $deleted ✓" else "Deleted $deleted, failed $failed", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp).height(52.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (canDelete) Color(0xFFFF2E63) else Color(0xFF444444))
+                ) {
+                    Text("Delete ${selectedIds.size} selected", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            }
+
+            BottomNav(active = "CLEANER", onContentClick = onBackToContent, onCenterClick = onOpenCreate, onCleanerClick = {})
         }
     }
 }
 
-// Daily counter helpers (simple, resets on app restart)
-private const val PREFS = "cleaner"
-private const val KEY_COUNT = "deletions_today"
-
-private fun getDeletionsToday(ctx: Context) =
-    ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_COUNT, 0)
-
-private fun saveDeletionsToday(ctx: Context, value: Int) {
-    ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putInt(KEY_COUNT, value)
-        .apply()
+@Composable
+private fun RepostGridCell(repost: TikTokRepost, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxWidth().aspectRatio(0.75f)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF1A1A2E))
+            .clickable(onClick = onClick)
+            .then(if (selected) Modifier.border(2.dp, Color(0xFFFF2E63), RoundedCornerShape(10.dp)) else Modifier)
+    ) {
+        if (!repost.coverUrl.isNullOrEmpty()) {
+            AsyncImage(model = repost.coverUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        }
+        Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.45f).align(Alignment.BottomCenter)
+            .background(brush = androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.75f)))))
+        Text("@${repost.authorUsername}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+            modifier = Modifier.align(Alignment.BottomStart).padding(6.dp))
+        if (selected) {
+            Box(modifier = Modifier.padding(6.dp).size(22.dp).background(Color(0xFFFF2E63), RoundedCornerShape(99.dp)).align(Alignment.TopEnd), contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))
+            }
+        }
+    }
 }

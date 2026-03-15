@@ -43,9 +43,9 @@ object TikTokSessionManager {
             .putString("avatarUrl", session.avatarUrl)
             .apply()
     }
-
     fun clearSession(context: Context) {
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit().clear().apply()
+        context.getSharedPreferences("tiktok_session", Context.MODE_PRIVATE)
+            .edit().clear().apply()
     }
 
     private fun getCookies(): String {

@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.tiktokclone"
+    namespace = "com.example.creatorsuiteapp"
     compileSdk = 36
 
     defaultConfig {

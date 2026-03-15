@@ -103,7 +103,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
 
             Spacer(Modifier.height(14.dp))
 
-            TextButton(onClick = {}) {
+            TextButton(onClick = { onLoginSuccess() }) {
                 Text("SKIP FOR NOW", color = Color.White, fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold, letterSpacing = 2.4.sp,
                     modifier = Modifier.padding(bottom = 4.dp))

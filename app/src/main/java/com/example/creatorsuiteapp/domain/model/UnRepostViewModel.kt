@@ -50,6 +50,9 @@ class UnRepostViewModel(app: Application) : AndroidViewModel(app) {
     private val _deleteProgress = MutableStateFlow<String?>(null)
     val deleteProgress = _deleteProgress.asStateFlow()
 
+    private val _deletePercent = MutableStateFlow<Int?>(null)
+    val deletePercent = _deletePercent.asStateFlow()
+
     private val _deletionsToday = MutableStateFlow(getDeletionsToday())
     val deletionsToday = _deletionsToday.asStateFlow()
 
@@ -134,11 +137,13 @@ class UnRepostViewModel(app: Application) : AndroidViewModel(app) {
             toDelete.forEachIndexed { i, repost ->
                 if (_deletionsToday.value >= dailyLimit) {
                     _deleteProgress.value = "Daily limit reached"
+                    _deletePercent.value = null
                     delay(1000); _deleteProgress.value = null
                     onDone(success, failed + (toDelete.size - i)); return@launch
                 }
 
                 _deleteProgress.value = "Deleting ${i + 1} of ${toDelete.size}…"
+                _deletePercent.value = ((i.toFloat() / toDelete.size.toFloat()) * 100f).toInt()
                 Log.d("UnRepostVM", "Deleting videoId=${repost.id}")
 
                 // ✅ Pass the video ID directly — confirmed working endpoint:
@@ -161,15 +166,18 @@ class UnRepostViewModel(app: Application) : AndroidViewModel(app) {
                     failed++
                     if (++streak >= 5) {
                         _deleteProgress.value = "Too many failures"
+                        _deletePercent.value = null
                         delay(1500); _deleteProgress.value = null
                         onDone(success, failed); return@launch
                     }
                 }
 
+                _deletePercent.value = (((i + 1).toFloat() / toDelete.size.toFloat()) * 100f).toInt()
                 delay(Random.nextLong(1000, 3000))
             }
 
             _selectedIds.value = emptySet()
+            _deletePercent.value = null
             _deleteProgress.value = null
             onDone(success, failed)
         }

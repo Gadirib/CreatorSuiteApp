@@ -35,10 +35,10 @@ fun BottomNav(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(74.dp)
+            .height(113.dp)
             .background(Color.Black)
-            .border(1.dp, Color(0xFF1F2230), RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
-            .padding(horizontal = 20.dp),
+            .border(1.dp, Color(0xFF1F2230), RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
+            .padding(horizontal = 26.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -49,7 +49,7 @@ fun BottomNav(
             Image(
                 painter = painterResource(R.drawable.ic_nav_content),
                 contentDescription = null,
-                modifier = Modifier.size(26.dp),
+                modifier = Modifier.size(32.dp),
                 colorFilter = ColorFilter.tint(if (active == "CONTENT") Color(0xFFFF2E63) else Color(0xFF7E819A))
             )
             Text(
@@ -62,8 +62,8 @@ fun BottomNav(
 
         Box(
             modifier = Modifier
-                .size(58.dp)
-                .background(Color(0xFFFF2E63), RoundedCornerShape(16.dp))
+                .size(64.dp)
+                .background(Color(0xFFFF2E63), RoundedCornerShape(32.dp))
                 .clickable { onCenterClick() },
             contentAlignment = Alignment.Center
         ) {
@@ -77,7 +77,7 @@ fun BottomNav(
             Image(
                 painter = painterResource(R.drawable.ic_clean_feed),
                 contentDescription = null,
-                modifier = Modifier.size(26.dp),
+                modifier = Modifier.size(34.dp),
                 colorFilter = ColorFilter.tint(if (active == "CLEANER") Color(0xFFFF2E63) else Color(0xFF7E819A))
             )
             Text(

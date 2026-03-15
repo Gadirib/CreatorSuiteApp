@@ -39,6 +39,8 @@ android {
 dependencies {
     implementation(libs.androidx.foundation)
     implementation(libs.androidx.appcompat)
+    implementation(libs.play.services.auth.base)
+    implementation(libs.androidx.foundation.layout)
     val cameraXVersion = "1.4.2"
     val media3Version = "1.5.1"
     implementation(libs.androidx.core.ktx)
@@ -75,4 +77,7 @@ dependencies {
     implementation("androidx.browser:browser:1.7.0")
     implementation("org.json:json:20231013")
     implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
+    implementation("com.google.android.gms:play-services-base:18.5.0")
 }

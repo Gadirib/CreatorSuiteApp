@@ -29,13 +29,31 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
 
+            <!-- ✅ Dropbox OAuth redirect — db-{app_key}://2/token -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="db-6x6ok852aaqn53i" android:host="2" android:path="/token"/>
+            </intent-filter>
+
         </activity>
 
-        <!-- BURAYA əlavə olunur -->
         <activity
             android:name=".data.tiktok.TikTokLoginActivity"
             android:exported="false"
             android:theme="@style/Theme.TikTokClone"/>
+
+        <!-- FileProvider for sharing downloaded files with video editor -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 

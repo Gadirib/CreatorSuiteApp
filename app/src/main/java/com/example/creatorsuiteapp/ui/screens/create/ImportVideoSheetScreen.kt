@@ -1,6 +1,8 @@
 package com.example.creatorsuiteapp.ui.screens.create
 
-import androidx.compose.foundation.Image
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,8 +26,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import com.example.creatorsuiteapp.R
 import com.example.creatorsuiteapp.data.media.MediaSelectionStore
 
@@ -34,8 +35,17 @@ fun ImportVideoSheetScreen(
     onClose: () -> Unit,
     onPick: () -> Unit
 ) {
-    val picker = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
+    val videoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            MediaSelectionStore.setVideo(uri)
+            onPick()
+        }
+    }
+
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
             MediaSelectionStore.setVideo(uri)
@@ -54,7 +64,11 @@ fun ImportVideoSheetScreen(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .background(Color.Black, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
-                .border(1.dp, Color(0xFF31354A), RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                .border(
+                    width = 1.dp,
+                    color = Color(0xFF31354A),
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+                )
                 .padding(18.dp)
                 .clickable(enabled = false) {}
         ) {
@@ -66,14 +80,23 @@ fun ImportVideoSheetScreen(
                     .background(Color(0xFF5B5E73), RoundedCornerShape(99.dp))
             )
             Spacer(Modifier.height(14.dp))
-            Text("Import Video", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
-            Spacer(Modifier.height(14.dp))
+            Text(
+                text = "Import Video",
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+            Spacer(Modifier.height(18.dp))
 
-            ImportSourceRow("Google Drive", R.drawable.ic_google_drive) { picker.launch("video/*") }
+            ImportSourceRow("Videos", R.drawable.ic_video_small) {
+                videoPicker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                )
+            }
             Spacer(Modifier.height(10.dp))
-            ImportSourceRow("Dropbox", R.drawable.ic_dropbox) { picker.launch("video/*") }
-            Spacer(Modifier.height(10.dp))
-            ImportSourceRow("from Files", R.drawable.ic_files) { picker.launch("video/*") }
+            ImportSourceRow("Files", R.drawable.ic_files) {
+                filePicker.launch(arrayOf("video/*"))
+            }
             Spacer(Modifier.height(16.dp))
         }
     }
@@ -91,8 +114,17 @@ private fun ImportSourceRow(text: String, iconRes: Int, onClick: () -> Unit) {
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Image(painterResource(iconRes), null, modifier = Modifier.size(30.dp))
+        Image(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            modifier = Modifier.size(30.dp)
+        )
         Spacer(Modifier.width(14.dp))
-        Text(text, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            text = text,
+            color = Color.White,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }

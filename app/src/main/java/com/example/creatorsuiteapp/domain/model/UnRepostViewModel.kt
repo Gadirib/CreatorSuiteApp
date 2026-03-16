@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.creatorsuiteapp.data.repository.CleanerStatsRepository
 import com.example.creatorsuiteapp.data.tiktok.TikTokApiService
 import com.example.creatorsuiteapp.data.tiktok.TikTokSessionManager
 import kotlinx.coroutines.delay
@@ -161,6 +162,7 @@ class UnRepostViewModel(app: Application) : AndroidViewModel(app) {
                     success++; streak = 0
                     _deletionsToday.value++
                     saveDeletionsToday(_deletionsToday.value)
+                    CleanerStatsRepository.recordDeletion(context)
                     _reposts.value = _reposts.value.filter { it.id != repost.id }
                 } else {
                     failed++

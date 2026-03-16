@@ -11,8 +11,14 @@ object MediaSelectionStore {
     private val _audioUri = MutableStateFlow<Uri?>(null)
     val audioUri: StateFlow<Uri?> = _audioUri
 
+    // ✅ Accept Uri directly (from gallery/file picker or FileProvider)
     fun setVideo(uri: Uri?) {
         _videoUri.value = uri
+    }
+
+    // ✅ Convenience overload for file path strings (e.g. from MediaCodec output)
+    fun setVideo(path: String) {
+        _videoUri.value = Uri.parse("file://$path")
     }
 
     fun setAudio(uri: Uri?) {
@@ -20,6 +26,11 @@ object MediaSelectionStore {
     }
 
     fun clearAudio() {
+        _audioUri.value = null
+    }
+
+    fun clear() {
+        _videoUri.value = null
         _audioUri.value = null
     }
 }

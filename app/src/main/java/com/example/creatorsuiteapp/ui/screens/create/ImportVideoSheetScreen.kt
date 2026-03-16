@@ -1,130 +1,161 @@
 package com.example.creatorsuiteapp.ui.screens.create
 
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.runtime.*
+import androidx.compose.ui.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.Image
+import androidx.compose.ui.unit.*
 import com.example.creatorsuiteapp.R
 import com.example.creatorsuiteapp.data.media.MediaSelectionStore
+import kotlinx.coroutines.launch
 
 @Composable
 fun ImportVideoSheetScreen(
     onClose: () -> Unit,
     onPick: () -> Unit
 ) {
-    val videoPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) {
-            MediaSelectionStore.setVideo(uri)
-            onPick()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isImporting by remember { mutableStateOf(false) }
+
+    // Shared import handler — takes persistent permission and opens the editor.
+    // Do not save here; saving should happen only after Apply Changes.
+    fun handleUri(uri: android.net.Uri) {
+        scope.launch {
+            isImporting = true
+            try {
+                // ✅ Take persistent read permission so ExoPlayer can access URI later
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (e: SecurityException) { /* some providers don't support it — fine */ }
+
+                MediaSelectionStore.setVideo(uri)
+                onPick()
+            } finally {
+                isImporting = false
+            }
         }
     }
 
+    // ✅ Videos — device gallery, filtered to videos only
+    val videoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri -> if (uri != null) handleUri(uri) }
+
+    // ✅ Files — system file manager, restricted to video files only
     val filePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            MediaSelectionStore.setVideo(uri)
-            onPick()
-        }
-    }
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) handleUri(uri) }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.55f))
-            .clickable { onClose() }
+            .clickable(enabled = !isImporting) { onClose() }
     ) {
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .background(Color.Black, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
-                .border(
-                    width = 1.dp,
-                    color = Color(0xFF31354A),
-                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
-                )
+                .border(1.dp, Color(0xFF31354A), RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
                 .padding(18.dp)
                 .clickable(enabled = false) {}
         ) {
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
-                    .width(56.dp)
-                    .height(5.dp)
+                    .width(56.dp).height(5.dp)
                     .background(Color(0xFF5B5E73), RoundedCornerShape(99.dp))
             )
-            Spacer(Modifier.height(14.dp))
-            Text(
-                text = "Import Video",
-                color = Color.White,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.ExtraBold
-            )
-            Spacer(Modifier.height(18.dp))
 
-            ImportSourceRow("Videos", R.drawable.ic_video_small) {
-                videoPicker.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                )
+            Spacer(Modifier.height(14.dp))
+
+            Text("Import Video", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+
+            Spacer(Modifier.height(14.dp))
+
+            // ✅ Videos — opens camera roll / media library
+            ImportSourceRow(
+                text = "Videos",
+                iconRes = R.drawable.ic_files,
+                description = "Camera roll & media library",
+                enabled = !isImporting
+            ) {
+                videoPicker.launch("video/*")
             }
+
             Spacer(Modifier.height(10.dp))
-            ImportSourceRow("Files", R.drawable.ic_files) {
+
+            // ✅ Files — opens system file manager, video files only
+            ImportSourceRow(
+                text = "Files",
+                iconRes = R.drawable.ic_files,
+                description = "Browse video files",
+                enabled = !isImporting
+            ) {
                 filePicker.launch(arrayOf("video/*"))
             }
+
             Spacer(Modifier.height(16.dp))
+        }
+
+        // Loading overlay while importing
+        if (isImporting) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(0.6f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = Color(0xFFFF2E63))
+                    Spacer(Modifier.height(12.dp))
+                    Text("Importing video…", color = Color.White, fontSize = 14.sp)
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun ImportSourceRow(text: String, iconRes: Int, onClick: () -> Unit) {
+private fun ImportSourceRow(
+    text: String,
+    iconRes: Int,
+    description: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(74.dp)
-            .background(Color(0xFF141722), RoundedCornerShape(16.dp))
+            .background(
+                if (enabled) Color(0xFF141722) else Color(0xFF0D1017),
+                RoundedCornerShape(16.dp)
+            )
             .border(1.dp, Color(0xFF2A2E3F), RoundedCornerShape(16.dp))
-            .clickable { onClick() }
+            .clickable(enabled = enabled) { onClick() }
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Image(
-            painter = painterResource(iconRes),
-            contentDescription = null,
-            modifier = Modifier.size(30.dp)
-        )
+        Image(painterResource(iconRes), null, modifier = Modifier.size(30.dp))
         Spacer(Modifier.width(14.dp))
-        Text(
-            text = text,
-            color = Color.White,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold
-        )
+        Column {
+            Text(text, color = if (enabled) Color.White else Color(0xFF6F738A), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(description, color = Color(0xFF6F738A), fontSize = 12.sp)
+        }
     }
 }

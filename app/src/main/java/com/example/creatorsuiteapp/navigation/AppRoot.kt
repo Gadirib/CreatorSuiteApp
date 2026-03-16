@@ -25,7 +25,7 @@ fun AppRoot() {
             if (TikTokSessionManager.isLoggedIn(context)) {
                 AppScreen.Content   // already authorized → go to main screen
             } else {
-                AppScreen.Login     // not authorized → force login first
+                AppScreen.Cover
             }
         )
     }
@@ -41,8 +41,7 @@ fun AppRoot() {
         )
 
         AppScreen.Cover -> CoverScreen(
-            onTimeout = {
-                // If you still want Cover as splash → check auth again after timeout
+            onFinished = {
                 screen = if (TikTokSessionManager.isLoggedIn(context)) {
                     AppScreen.Content
                 } else {
@@ -77,7 +76,8 @@ fun AppRoot() {
         )
 
         AppScreen.VideoTrim -> VideoTrimScreen(
-            onClose = { screen = AppScreen.Content }
+            onClose = { screen = AppScreen.Content },
+            onSaved = { screen = AppScreen.Content }   // ← after save, go to ContentScreen
         )
 
         AppScreen.Rec -> RecScreen(

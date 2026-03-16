@@ -437,26 +437,6 @@ fun RecScreen(onClose: () -> Unit) {
                 )
             }
 
-            Spacer(Modifier.height(16.dp))
-
-            Row(
-                modifier = Modifier
-                    .background(Color(0xFF350817), RoundedCornerShape(24.dp))
-                    .border(1.dp, Color(0xFFFF2E63), RoundedCornerShape(24.dp))
-                    .clickable { showPublishSheet = true }
-                    .padding(horizontal = 18.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Image(
-                    painter = painterResource(R.drawable.ic_tiktok),
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    colorFilter = ColorFilter.tint(Color(0xFFFF2E63))
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("Post to TikTok", color = Color(0xFFFF2E63), fontWeight = FontWeight.Bold)
-            }
-
             Spacer(Modifier.height(10.dp))
         }
 

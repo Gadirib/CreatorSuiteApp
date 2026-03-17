@@ -86,7 +86,6 @@ object TikTokApiService {
         }
     }
 
-    // ── getReposts ────────────────────────────────────────────────────────────
     suspend fun getReposts(secUid: String, cursor: Int = 0): JSONObject? {
         val encodedSecUid = URLEncoder.encode(secUid, "UTF-8")
         val msToken = getCookieValue("msToken")
@@ -108,18 +107,10 @@ object TikTokApiService {
         return try { JSONObject(result) } catch (e: Exception) { null }
     }
 
-    // ── deleteRepost ──────────────────────────────────────────────────────────
-    // ✅ CONFIRMED from DevTools interception:
-    // - Endpoint: POST /tiktok/v1/upvote/delete
-    // - item_id passed as URL QUERY PARAM (not in body)
-    // - Body is EMPTY ""
-    // - No X-CSRFToken header needed
-    // - All browser fingerprint params in URL
     suspend fun deleteRepost(itemId: String): Boolean {
         val msToken = getCookieValue("msToken")
         val verifyFp = getCookieValue("s_v_web_id")
 
-        // ✅ Exact params from real TikTok web request
         val params = buildString {
             append("aid=1988")
             append("&app_name=tiktok_web")
@@ -130,7 +121,6 @@ object TikTokApiService {
             append("&from_page=video")
             append("&is_fullscreen=false")
             append("&is_page_visible=true")
-            // ✅ item_id is in the URL, NOT in the body
             append("&item_id=$itemId")
             append("&os=android")
             append("&user_is_login=true")
@@ -141,8 +131,6 @@ object TikTokApiService {
         val url = "https://www.tiktok.com/tiktok/v1/upvote/delete?$params"
         Log.d(TAG, "deleteRepost item_id=$itemId")
 
-        // ✅ POST with EMPTY body — confirmed from DevTools
-        // No X-CSRFToken header — TikTok doesn't require it for this endpoint
         val js = """
             (function() {
                 fetch('$url', {

@@ -16,14 +16,12 @@ class TikTokApiClient(private val context: Context) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
-        // ✅ Don't follow redirects — if TikTok returns 302 we want to see it, not follow blindly
         .followRedirects(false)
         .followSslRedirects(false)
         .build()
 
     private val ua = TikTokSessionManager.UA
 
-    // Must be called on Main thread
     private fun readCookies(): String =
         CookieManager.getInstance().getCookie("https://www.tiktok.com") ?: ""
 
@@ -37,9 +35,8 @@ class TikTokApiClient(private val context: Context) {
             .firstOrNull { it.startsWith("msToken=") }
             ?.substringAfter("msToken=")?.trim() ?: ""
 
-    // ── Get reposts list ──────────────────────────────────────────────────────
     suspend fun getReposts(secUid: String, cursor: Int = 0): JSONObject? {
-        val cookies = readCookies() // Main thread
+        val cookies = readCookies()
         val msToken = extractMsToken(cookies)
 
         Log.d("TikTokApi", "cookies length=${cookies.length}, has sessionid=${cookies.contains("sessionid")}, has msToken=${msToken.isNotEmpty()}")
@@ -49,7 +46,6 @@ class TikTokApiClient(private val context: Context) {
             return null
         }
 
-        // ✅ msToken must be appended to URL as query param (TikTok API requirement)
         val url = "https://www.tiktok.com/api/repost/item_list/" +
                 "?secUid=$secUid&count=30&cursor=$cursor" +
                 (if (msToken.isNotEmpty()) "&msToken=$msToken" else "")
@@ -63,7 +59,6 @@ class TikTokApiClient(private val context: Context) {
                 .header("Referer", "https://www.tiktok.com/")
                 .header("Accept", "application/json, text/plain, */*")
                 .header("Accept-Language", "en-US,en;q=0.9")
-                // ✅ These headers are required — TikTok checks them
                 .header("sec-fetch-site", "same-origin")
                 .header("sec-fetch-mode", "cors")
                 .header("sec-fetch-dest", "empty")
@@ -101,9 +96,8 @@ class TikTokApiClient(private val context: Context) {
         }
     }
 
-    // ── Delete a repost ───────────────────────────────────────────────────────
     suspend fun deleteRepost(awemeId: String): Boolean {
-        val cookies = readCookies() // Main thread
+        val cookies = readCookies()
         val csrfToken = extractCsrfToken(cookies)
 
         if (!cookies.contains("sessionid")) {

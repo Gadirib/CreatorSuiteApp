@@ -1,11 +1,11 @@
-package com.example.creatorsuiteapp.ui.screens.cleaner
+package com.example.tiktokclone.ui.screens.cleaner
 
 import android.app.Application
 import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.creatorsuiteapp.data.repository.CleanerStatsRepository
+import com.example.creatorsuiteapp.data.repository.RepostStatsRepository
 import com.example.creatorsuiteapp.data.tiktok.TikTokApiService
 import com.example.creatorsuiteapp.data.tiktok.TikTokSessionManager
 import kotlinx.coroutines.delay
@@ -17,7 +17,7 @@ import java.util.*
 import kotlin.random.Random
 
 data class TikTokRepost(
-    val id: String,          // video ID — this is what /api/repost/cancel/ needs
+    val id: String,
     val desc: String,
     val authorUsername: String,
     val authorNickname: String,
@@ -91,8 +91,6 @@ class UnRepostViewModel(app: Application) : AndroidViewModel(app) {
                     val video = item.optJSONObject("video")
                     val stats = item.optJSONObject("stats")
 
-                    // ✅ repostList[0] contains YOUR user info (who reposted),
-                    // NOT a repost record ID. The correct delete ID is the video "id" field.
                     val videoId = item.optString("id")
 
                     all += TikTokRepost(
@@ -133,23 +131,20 @@ class UnRepostViewModel(app: Application) : AndroidViewModel(app) {
         if (toDelete.isEmpty()) return
 
         viewModelScope.launch {
+            // Retries deletions and enforces the daily limit.
             var success = 0; var failed = 0; var streak = 0
 
             toDelete.forEachIndexed { i, repost ->
                 if (_deletionsToday.value >= dailyLimit) {
                     _deleteProgress.value = "Daily limit reached"
-                    _deletePercent.value = null
-                    delay(1000); _deleteProgress.value = null
+                    delay(1000); _deleteProgress.value = null; _deletePercent.value = null
                     onDone(success, failed + (toDelete.size - i)); return@launch
                 }
 
                 _deleteProgress.value = "Deleting ${i + 1} of ${toDelete.size}…"
-                _deletePercent.value = ((i.toFloat() / toDelete.size.toFloat()) * 100f).toInt()
+                _deletePercent.value = ((i + 1) * 100) / toDelete.size
                 Log.d("UnRepostVM", "Deleting videoId=${repost.id}")
 
-                // ✅ Pass the video ID directly — confirmed working endpoint:
-                // POST /api/repost/cancel/ with body aweme_id={videoId}
-                // returns status_code=0 ("url doesn't match" is just internal routing noise)
                 var deleted = false
                 repeat(2) {
                     if (!deleted) {
@@ -162,37 +157,51 @@ class UnRepostViewModel(app: Application) : AndroidViewModel(app) {
                     success++; streak = 0
                     _deletionsToday.value++
                     saveDeletionsToday(_deletionsToday.value)
-                    CleanerStatsRepository.recordDeletion(context)
                     _reposts.value = _reposts.value.filter { it.id != repost.id }
                 } else {
                     failed++
                     if (++streak >= 5) {
                         _deleteProgress.value = "Too many failures"
-                        _deletePercent.value = null
-                        delay(1500); _deleteProgress.value = null
+                        delay(1500); _deleteProgress.value = null; _deletePercent.value = null
                         onDone(success, failed); return@launch
                     }
                 }
 
-                _deletePercent.value = (((i + 1).toFloat() / toDelete.size.toFloat()) * 100f).toInt()
                 delay(Random.nextLong(1000, 3000))
             }
 
             _selectedIds.value = emptySet()
-            _deletePercent.value = null
             _deleteProgress.value = null
+            _deletePercent.value = null
             onDone(success, failed)
         }
     }
 
+    private fun accountId(): String {
+        val prefs = context.getSharedPreferences("tiktok_session", Context.MODE_PRIVATE)
+        val secUid = prefs.getString("secUid", null)
+        return if (!secUid.isNullOrBlank()) secUid.takeLast(16) else "default"
+    }
+
     private fun getDeletionsToday(): Int {
+        val key = "count_${accountId()}"
+        val dateKey = "date_${accountId()}"
         val p = context.getSharedPreferences("cleaner_prefs", Context.MODE_PRIVATE)
-        return if (p.getString("date", "") == today()) p.getInt("count", 0) else 0
+        return if (p.getString(dateKey, "") == today()) p.getInt(key, 0) else 0
     }
 
     private fun saveDeletionsToday(n: Int) {
-        context.getSharedPreferences("cleaner_prefs", Context.MODE_PRIVATE)
-            .edit().putString("date", today()).putInt("count", n).apply()
+        val id = accountId()
+        val key = "count_$id"
+        val dateKey = "date_$id"
+        val todayStr = today()
+        val prefs = context.getSharedPreferences("cleaner_prefs", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString(dateKey, todayStr)
+            .putInt(key, n)
+            .putInt("day_${id}_$todayStr", n)
+            .apply()
+        RepostStatsRepository.incrementDeleted(context, 1)
     }
 
     private fun today() = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())

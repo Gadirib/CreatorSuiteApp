@@ -1,12 +1,12 @@
 package com.example.creatorsuiteapp.domain.model
 
 data class SavedVideoItem(
-    val videoRes: Int,     // mp4 in res/raw
-    val thumbRes: Int      // thumbnail in res/drawable
+    val videoRes: Int,
+    val thumbRes: Int
 )
 
 data class SavedImageItem(
-    val imageRes: Int      // image in res/drawable
+    val imageRes: Int
 )
 
 data class CleanerItem(

@@ -2,7 +2,7 @@ package com.example.creatorsuiteapp.navigation
 
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
-import com.example.creatorsuiteapp.data.tiktok.TikTokSessionManager   // ← make sure this import exists
+import com.example.creatorsuiteapp.data.tiktok.TikTokSessionManager
 import com.example.creatorsuiteapp.ui.screens.action.ActionScreen
 import com.example.creatorsuiteapp.ui.screens.cleaner.CleanerScreen
 import com.example.creatorsuiteapp.ui.screens.content.ContentScreen
@@ -19,24 +19,22 @@ import com.example.creatorsuiteapp.ui.screens.settings.SettingsScreen
 fun AppRoot() {
     val context = LocalContext.current
 
-    // This is the key part: decide starting screen based on auth status
+    // Keeps app navigation in local screen state.
     var screen by remember {
         mutableStateOf(
             if (TikTokSessionManager.isLoggedIn(context)) {
-                AppScreen.Content   // already authorized → go to main screen
+                AppScreen.Content
             } else {
                 AppScreen.Cover
             }
         )
     }
 
-    // Optional: you can keep a short splash/cover if you want,
-    // but document wants login to be the entry point when not authorized
     when (screen) {
 
         AppScreen.Login -> LoginScreen(
             onLoginSuccess = {
-                screen = AppScreen.Content   // after login → main screen
+                screen = AppScreen.Content
             }
         )
 
@@ -77,7 +75,7 @@ fun AppRoot() {
 
         AppScreen.VideoTrim -> VideoTrimScreen(
             onClose = { screen = AppScreen.Content },
-            onSaved = { screen = AppScreen.Content }   // ← after save, go to ContentScreen
+            onSaved = { screen = AppScreen.Content }
         )
 
         AppScreen.Rec -> RecScreen(
@@ -93,7 +91,6 @@ fun AppRoot() {
         AppScreen.Settings -> SettingsScreen(
             onClose = { screen = AppScreen.Content },
             onLoggedOut = {
-                // Important: after logout → force login again
                 screen = AppScreen.Login
             }
         )

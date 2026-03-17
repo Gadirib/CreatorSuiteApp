@@ -24,10 +24,16 @@ object SavedVideoRepository {
     private const val VIDEOS_DIR = "SavedVideos"
     private const val THUMBS_DIR = "Thumbnails"
 
-    // ✅ Document: thumbnails are 300×350, JPEG quality 0.7
+    // Uses the current TikTok account as the storage scope.
+    private fun accountId(context: Context): String {
+        val prefs = context.getSharedPreferences("tiktok_session", Context.MODE_PRIVATE)
+        val secUid = prefs.getString("secUid", null)
+        return if (!secUid.isNullOrBlank()) secUid.takeLast(16) else "default"
+    }
+
     private const val THUMB_WIDTH = 300
     private const val THUMB_HEIGHT = 350
-    private const val THUMB_QUALITY = 70 // 0.7 * 100
+    private const val THUMB_QUALITY = 70
 
     private val _videos = MutableStateFlow<List<SavedVideo>>(emptyList())
     val videos: StateFlow<List<SavedVideo>> = _videos
@@ -36,16 +42,15 @@ object SavedVideoRepository {
         timeZone = TimeZone.getTimeZone("UTC")
     }
 
-    // ── Directory helpers ─────────────────────────────────────────────────────
 
     private fun videosDir(context: Context): File =
-        File(context.filesDir, VIDEOS_DIR).also { it.mkdirs() }
+        File(context.filesDir, "${accountId(context)}/$VIDEOS_DIR").also { it.mkdirs() }
 
     private fun thumbsDir(context: Context): File =
-        File(context.filesDir, THUMBS_DIR).also { it.mkdirs() }
+        File(context.filesDir, "${accountId(context)}/$THUMBS_DIR").also { it.mkdirs() }
 
     private fun jsonFile(context: Context): File =
-        File(context.filesDir, JSON_FILE)
+        File(context.filesDir, "${accountId(context)}/$JSON_FILE").also { it.parentFile?.mkdirs() }
 
     fun videoFile(context: Context, savedVideo: SavedVideo): File =
         File(videosDir(context), savedVideo.fileName)
@@ -53,12 +58,8 @@ object SavedVideoRepository {
     fun thumbFile(context: Context, savedVideo: SavedVideo): File =
         File(thumbsDir(context), savedVideo.thumbnailFileName)
 
-    fun findByVideoUri(context: Context, uri: Uri): SavedVideo? {
-        val path = uri.path ?: return null
-        return _videos.value.firstOrNull { videoFile(context, it).absolutePath == path }
-    }
 
-    // ── Load ──────────────────────────────────────────────────────────────────
+    suspend fun switchAccount(context: Context) = load(context)
 
     suspend fun load(context: Context) = withContext(Dispatchers.IO) {
         try {
@@ -74,12 +75,6 @@ object SavedVideoRepository {
         }
     }
 
-    // ── Import ────────────────────────────────────────────────────────────────
-    // Called when user picks a video from gallery or files.
-    // 1. Copy video to {app}/SavedVideos/{uuid}.mp4
-    // 2. Extract thumbnail → {app}/Thumbnails/{uuid}.jpg (300×350, JPEG 0.7)
-    // 3. Get duration from MediaMetadataRetriever
-    // 4. Append to saved_videos.json
 
     suspend fun importVideo(context: Context, sourceUri: Uri): SavedVideo? =
         withContext(Dispatchers.IO) {
@@ -88,7 +83,6 @@ object SavedVideoRepository {
                 val fileName = "$id.mp4"
                 val thumbFileName = "$id.jpg"
 
-                // 1. Copy video file
                 val outVideoFile = File(videosDir(context), fileName)
                 context.contentResolver.openInputStream(sourceUri)?.use { input ->
                     FileOutputStream(outVideoFile).use { output ->
@@ -99,28 +93,23 @@ object SavedVideoRepository {
                     return@withContext null
                 }
 
-                // 2. Extract thumbnail + duration from the copied app-local file.
-                // Using the local file path is more reliable than the original picker/file URI,
-                // especially for trimmed/split outputs saved as file:// URIs.
+                // Builds the saved clip metadata from the picked source.
                 val retriever = MediaMetadataRetriever()
                 var duration = 0.0
                 try {
-                    retriever.setDataSource(outVideoFile.absolutePath)
+                    retriever.setDataSource(context, sourceUri)
                     val durationMs = retriever.extractMetadata(
                         MediaMetadataRetriever.METADATA_KEY_DURATION
                     )?.toLongOrNull() ?: 0L
                     duration = durationMs / 1000.0
 
-                    // Grab frame at 1 second (or start if video < 1s)
                     val timeUs = minOf(1_000_000L, (durationMs * 1000).coerceAtLeast(0L))
                     val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
 
                     if (frame != null) {
-                        // ✅ Scale to 300×350 as per document
                         val scaled = Bitmap.createScaledBitmap(frame, THUMB_WIDTH, THUMB_HEIGHT, true)
                         val thumbFile = File(thumbsDir(context), thumbFileName)
                         FileOutputStream(thumbFile).use { out ->
-                            // ✅ JPEG quality 0.7 (70) as per document
                             scaled.compress(Bitmap.CompressFormat.JPEG, THUMB_QUALITY, out)
                         }
                         if (scaled != frame) frame.recycle()
@@ -132,7 +121,6 @@ object SavedVideoRepository {
                     try { retriever.release() } catch (e: Exception) {}
                 }
 
-                // 3. Create SavedVideo model
                 val savedVideo = SavedVideo(
                     id = id,
                     fileName = fileName,
@@ -141,7 +129,6 @@ object SavedVideoRepository {
                     createdAt = Date()
                 )
 
-                // 4. Append to JSON
                 val updatedList = _videos.value + savedVideo
                 saveJson(context, updatedList)
                 _videos.value = updatedList
@@ -154,7 +141,6 @@ object SavedVideoRepository {
             }
         }
 
-    // ── Delete ────────────────────────────────────────────────────────────────
 
     suspend fun delete(context: Context, id: String) = withContext(Dispatchers.IO) {
         val video = _videos.value.firstOrNull { it.id == id } ?: return@withContext
@@ -169,7 +155,6 @@ object SavedVideoRepository {
         _videos.value = updatedList
     }
 
-    // ── Mark as posted ────────────────────────────────────────────────────────
 
     suspend fun markPosted(
         context: Context,
@@ -191,7 +176,6 @@ object SavedVideoRepository {
         _videos.value = updatedList
     }
 
-    // ── JSON serialization ────────────────────────────────────────────────────
 
     private fun saveJson(context: Context, list: List<SavedVideo>) {
         val arr = JSONArray()

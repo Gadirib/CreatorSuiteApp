@@ -28,6 +28,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.creatorsuiteapp.R
+import com.example.creatorsuiteapp.data.repository.RepostStatsRepository
+import com.example.creatorsuiteapp.data.repository.SavedVideoRepository
 import com.example.creatorsuiteapp.data.tiktok.TikTokSessionManager
 import com.example.creatorsuiteapp.ui.icons.AppIcons
 import kotlinx.coroutines.delay
@@ -35,8 +37,6 @@ import kotlinx.coroutines.delay
 private const val UA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
-// TikTok's login page with all options: phone/email, Facebook, Google, Apple etc.
-// This is what the user sees when they tap "Log in" in the real TikTok app
 private const val TIKTOK_LOGIN_URL = "https://www.tiktok.com/login"
 
 @Composable
@@ -46,7 +46,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
     var pollingActive by remember { mutableStateOf(false) }
     var loginDetected by remember { mutableStateOf(false) }
 
-    // ── DARK ONBOARDING SCREEN ────────────────────────────────────────────────
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF070707))) {
         Column(
             modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp),
@@ -87,7 +86,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
 
             Spacer(Modifier.weight(1f))
 
-            // ✅ Tap → opens real TikTok login page (all login options inside)
             Button(
                 onClick = { loginDetected = false; showWebView = true },
                 modifier = Modifier.fillMaxWidth().height(54.dp),
@@ -103,7 +101,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
 
             Spacer(Modifier.height(14.dp))
 
-            TextButton(onClick = { onLoginSuccess() }) {
+            TextButton(onClick = {}) {
                 Text("SKIP FOR NOW", color = Color.White, fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold, letterSpacing = 2.4.sp,
                     modifier = Modifier.padding(bottom = 4.dp))
@@ -113,11 +111,10 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
         }
     }
 
-    // ── WEBVIEW: Real TikTok login page ───────────────────────────────────────
     if (showWebView) {
 
-        // Polling coroutine — detects sessionid cookie after user logs in
         LaunchedEffect(Unit) {
+            // Polls cookies until TikTok session data is available.
             pollingActive = true
             var attempts = 0
             while (attempts < 90) {
@@ -134,6 +131,8 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                     if (session != null) {
                         TikTokSessionManager.saveSession(context, session)
                         Log.d("TikTokPoll", "✅ Logged in as @${session.username}")
+                        SavedVideoRepository.switchAccount(context)
+                        RepostStatsRepository.switchAccount(context)
                         pollingActive = false
                         showWebView = false
                         onLoginSuccess()
@@ -160,7 +159,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
 
-                        // Popup WebView handles OAuth windows (Google, Facebook etc)
                         val popupWebView = WebView(ctx).apply {
                             layoutParams = matchParams
                             visibility = android.view.View.GONE
@@ -175,7 +173,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                                     if (url == null) return
                                     CookieManager.getInstance().flush()
                                     Log.d("TikTokPopup", "Popup: $url")
-                                    // OAuth done when redirected back to tiktok.com
                                     if (url.contains("tiktok.com") &&
                                         !url.contains("accounts.google") &&
                                         !url.contains("facebook.com") &&
@@ -196,7 +193,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                             }
                         }
 
-                        // Main WebView — loads the real TikTok login page
                         val mainWebView = WebView(ctx).apply {
                             layoutParams = matchParams
                             settings.userAgentString = UA
@@ -246,8 +242,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                                 }
                             }
 
-                            // ✅ Opens the real TikTok login page
-                            // User sees: phone/email, Facebook, Google, Apple, Twitter, Instagram
                             loadUrl(TIKTOK_LOGIN_URL)
                         }
 

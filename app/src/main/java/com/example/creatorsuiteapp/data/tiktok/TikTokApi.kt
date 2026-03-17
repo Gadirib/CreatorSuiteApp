@@ -73,7 +73,6 @@ object TikTokApi {
 
                     val json = JSONObject(jsonString)
 
-                    // ✅ FIXED path: __DEFAULT_SCOPE__ → webapp.user-detail → userInfo → user
                     val userInfo = json
                         .getJSONObject("__DEFAULT_SCOPE__")
                         .getJSONObject("webapp.user-detail")

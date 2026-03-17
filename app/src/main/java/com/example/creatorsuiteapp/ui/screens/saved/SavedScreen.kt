@@ -49,7 +49,7 @@ import com.example.creatorsuiteapp.ui.viewmodel.SavedViewModel
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SavedScreen(onClose: () -> Unit) {
-    var selectedTab by remember { mutableStateOf(0) } // 0=Video, 1=Images, 2=Posts
+    var selectedTab by remember { mutableStateOf(0) }
 
     val vm: SavedViewModel = viewModel()
     val videos by vm.videos.collectAsState()

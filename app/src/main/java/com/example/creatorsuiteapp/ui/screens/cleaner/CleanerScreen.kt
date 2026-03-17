@@ -34,6 +34,9 @@ import coil.compose.AsyncImage
 import com.example.creatorsuiteapp.data.tiktok.TikTokLoginActivity
 import com.example.creatorsuiteapp.data.tiktok.TikTokSessionManager
 import com.example.creatorsuiteapp.ui.components.BottomNav
+import com.example.tiktokclone.ui.screens.cleaner.LoadState
+import com.example.tiktokclone.ui.screens.cleaner.TikTokRepost
+import com.example.tiktokclone.ui.screens.cleaner.UnRepostViewModel
 
 @Composable
 fun CleanerScreen(
@@ -85,9 +88,6 @@ fun CleanerScreen(
 
     LaunchedEffect(Unit) {
         if (loadState is LoadState.Idle) {
-            // ✅ init() on Main thread — WebView creation requires Main thread
-            // loadReposts() starts immediately; TikTokApiService will wait
-            // internally until the WebView fires onPageFinished before calling fetch()
             vm.initApi(context)
             vm.loadReposts()
         }

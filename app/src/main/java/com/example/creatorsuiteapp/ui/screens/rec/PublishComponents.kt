@@ -142,7 +142,6 @@ fun PublishStatusOverlay(
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Status icon / spinner
             when (state.stage) {
                 PublishStage.Uploading, PublishStage.Publishing -> {
                     CircularProgressIndicator(
@@ -164,7 +163,6 @@ fun PublishStatusOverlay(
                         fontSize = 13.sp
                     )
                     Spacer(Modifier.height(14.dp))
-                    // Progress bar
                     if (state.progress > 0) {
                         LinearProgressIndicator(
                             progress = { state.progress / 100f },

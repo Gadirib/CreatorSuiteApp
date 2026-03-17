@@ -31,7 +31,6 @@ class PublishViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(PublishUiState())
     val state: StateFlow<PublishUiState> = _state
 
-    // ── Publish from URI (preferred — no need to load entire file into memory) ─
     fun publishFromUri(
         videoUri: Uri,
         caption: String,
@@ -41,7 +40,6 @@ class PublishViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 _state.value = PublishUiState(stage = PublishStage.Uploading, message = "Reading video…", progress = 0)
 
-                // Read video bytes from URI
                 val bytes = getApplication<Application>().contentResolver
                     .openInputStream(videoUri)?.use { it.readBytes() }
                     ?: throw Exception("Cannot read video file")
@@ -57,7 +55,6 @@ class PublishViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ── Publish from raw bytes ────────────────────────────────────────────────
     fun publish(fileBytes: ByteArray, fileName: String = "video.mp4", caption: String, privacy: String) {
         viewModelScope.launch {
             try {

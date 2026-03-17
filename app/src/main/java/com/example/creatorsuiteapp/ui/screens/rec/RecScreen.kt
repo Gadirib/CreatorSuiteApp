@@ -1,11 +1,8 @@
 package com.example.creatorsuiteapp.ui.screens.rec
 
 import android.Manifest
-import android.content.ContentValues
 import android.content.Intent
-import android.provider.MediaStore
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,10 +18,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,8 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,7 +47,7 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.Camera
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.video.MediaStoreOutputOptions
+import androidx.camera.video.FileOutputOptions
 import androidx.camera.video.Quality
 import androidx.camera.video.QualitySelector
 import androidx.camera.video.Recorder
@@ -71,6 +66,7 @@ import kotlinx.coroutines.launch
 import com.example.creatorsuiteapp.data.media.MediaSelectionStore
 import android.net.Uri
 import com.example.creatorsuiteapp.data.ServiceLocator
+import java.io.File
 
 private enum class RecTool { PITCH, NOICE, EFFECTS, SOUNDS }
 
@@ -82,6 +78,9 @@ fun RecScreen(onClose: () -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+
+    val audioProcessor = remember { RealtimeAudioProcessor(context) }
+    DisposableEffect(Unit) { onDispose { audioProcessor.release() } }
 
     var isRecording by remember { mutableStateOf(false) }
     var sec by remember { mutableStateOf(0) }
@@ -103,7 +102,6 @@ fun RecScreen(onClose: () -> Unit) {
     var vocalVolume by remember { mutableFloatStateOf(0.55f) }
     var delayValue by remember { mutableFloatStateOf(0.55f) }
     var pitchValue by remember { mutableFloatStateOf(0.80f) }
-
     var noiseOn by remember { mutableStateOf(true) }
 
     val effects = listOf("None", "Small Room", "Medium Room", "Cathedral", "Large Room", "Medium Hall", "Large Hall", "Medium Chamber")
@@ -116,20 +114,17 @@ fun RecScreen(onClose: () -> Unit) {
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { result ->
-        hasPermissions = result.values.all { it }
-    }
+    ) { result -> hasPermissions = result.values.all { it } }
+
     val audioPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            MediaSelectionStore.setAudio(uri)
-        }
-    }
+    ) { uri: Uri? -> if (uri != null) MediaSelectionStore.setAudio(uri) }
 
     LaunchedEffect(Unit) {
-        val cam = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        val mic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val cam = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        val mic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
         hasPermissions = cam && mic
         if (!hasPermissions) {
             permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
@@ -137,7 +132,7 @@ fun RecScreen(onClose: () -> Unit) {
     }
 
     LaunchedEffect(hasPermissions, lensFacing) {
-        if (!hasPermissions) return@LaunchedEffect
+        if (!hasPermissions || isRecording) return@LaunchedEffect
         val cameraProvider = context.getCameraProvider()
         val preview = Preview.Builder().build().also {
             it.setSurfaceProvider(previewView.surfaceProvider)
@@ -150,8 +145,7 @@ fun RecScreen(onClose: () -> Unit) {
         camera = cameraProvider.bindToLifecycle(
             lifecycleOwner,
             CameraSelector.Builder().requireLensFacing(lensFacing).build(),
-            preview,
-            capture
+            preview, capture
         )
         videoCapture = capture
         torchEnabled = false
@@ -163,10 +157,8 @@ fun RecScreen(onClose: () -> Unit) {
 
     LaunchedEffect(isRecording) {
         if (isRecording) {
-            while (isRecording) {
-                delay(1000)
-                sec++
-            }
+            sec = 0
+            while (isRecording) { delay(1000); sec++ }
         }
     }
 
@@ -177,30 +169,19 @@ fun RecScreen(onClose: () -> Unit) {
             .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
         if (hasPermissions) {
-            AndroidView(
-                factory = { previewView },
-                modifier = Modifier.fillMaxSize()
-            )
+            AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
             val effectOverlay = effectOverlayColor(selectedEffect, effectLevel)
             if (effectOverlay != Color.Transparent) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(effectOverlay)
-                )
+                Box(modifier = Modifier.fillMaxSize().background(effectOverlay))
             }
         }
 
         Row(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .padding(top = 52.dp),
+            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(top = 52.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("✕", color = Color.White, fontSize = 24.sp, modifier = Modifier.clickable { onClose() })
-
             Box(
                 modifier = Modifier
                     .background(Color(0xFFFF2E63), RoundedCornerShape(99.dp))
@@ -208,124 +189,87 @@ fun RecScreen(onClose: () -> Unit) {
             ) {
                 Text("• ${"%02d:%02d".format(sec / 60, sec % 60)}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
-
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     if (torchEnabled) "⚡" else "◌",
-                    color = if (torchEnabled) Color(0xFFFFC94D) else Color.White,
-                    fontSize = 24.sp,
-                    modifier = Modifier.clickable {
-                        if (!isRecording) torchEnabled = !torchEnabled
-                    }
+                    color = if (torchEnabled) Color(0xFFFFC94D) else Color.White, fontSize = 24.sp,
+                    modifier = Modifier.clickable { if (!isRecording) torchEnabled = !torchEnabled }
                 )
-                Text(
-                    "⟳",
-                    color = Color.White,
-                    fontSize = 28.sp,
+                Text("⟳", color = Color.White, fontSize = 28.sp,
                     modifier = Modifier.clickable {
-                        if (!isRecording) {
-                            lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK) {
-                                CameraSelector.LENS_FACING_FRONT
-                            } else {
-                                CameraSelector.LENS_FACING_BACK
-                            }
-                        }
+                        if (!isRecording) lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK)
+                            CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK
                     }
                 )
             }
         }
 
         Box(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(top = 170.dp)
-                .padding(end = 118.dp)
+            modifier = Modifier.align(Alignment.TopStart).padding(top = 170.dp).padding(end = 118.dp)
         ) {
             when (selectedTool) {
-                RecTool.PITCH -> {
-                    PanelCard(title = "PITCH") {
-                        SliderRow("VOCAL VOLUME", vocalVolume, minValue = 0, maxValue = 10) { vocalVolume = it }
-                        Spacer(Modifier.height(10.dp))
-                        SliderRow("DELAY", delayValue, minValue = 0, maxValue = 10) { delayValue = it }
-                        Spacer(Modifier.height(10.dp))
-                        SliderRow("PITCH", pitchValue, minValue = -10, maxValue = 10) { pitchValue = it }
+                RecTool.PITCH -> PanelCard(title = "PITCH") {
+                    SliderRow("VOCAL VOLUME", vocalVolume, 0, 10) { vocalVolume = it }
+                    Spacer(Modifier.height(10.dp))
+                    SliderRow("DELAY", delayValue, 0, 10) { delayValue = it }
+                    Spacer(Modifier.height(10.dp))
+                    SliderRow("PITCH", pitchValue, -10, 10) { pitchValue = it }
+                }
+                RecTool.NOICE -> PanelCard(title = "NOISE SUPPRESSION") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(56.dp)
+                            .background(Color(0xFF0E1017), RoundedCornerShape(28.dp))
+                            .border(1.dp, Color(0xFF2A2D3A), RoundedCornerShape(28.dp))
+                            .padding(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxHeight()
+                                .background(if (!noiseOn) Color(0xFFFF2E63) else Color.Transparent, RoundedCornerShape(22.dp))
+                                .clickable { noiseOn = false },
+                            contentAlignment = Alignment.Center
+                        ) { Text("Off", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxHeight()
+                                .background(if (noiseOn) Color(0xFFFF2E63) else Color.Transparent, RoundedCornerShape(22.dp))
+                                .clickable { noiseOn = true },
+                            contentAlignment = Alignment.Center
+                        ) { Text("On", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp) }
                     }
                 }
-
-                RecTool.NOICE -> {
-                    PanelCard(title = "NOISE SUPPRESSION") {
-                        Row(
+                RecTool.EFFECTS -> PanelCard(title = "EFFECTS") {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        effects.forEach { item -> SelectChip(item, item == selectedEffect) { selectedEffect = item } }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    SliderRow("LEVEL", effectLevel, 0, 10) { effectLevel = it }
+                }
+                RecTool.SOUNDS -> PanelCard(title = "SOUNDS") {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        sounds.forEach { item -> SelectChip(item, item == selectedSound) { selectedSound = item } }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    SliderRow("VOLUME", soundVolume, 0, 10) { soundVolume = it }
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp)
-                                .background(Color(0xFF0E1017), RoundedCornerShape(28.dp))
-                                .border(1.dp, Color(0xFF2A2D3A), RoundedCornerShape(28.dp))
-                                .padding(6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                .background(Color(0xFF171923), RoundedCornerShape(12.dp))
+                                .border(1.dp, Color(0xFF2A2D3A), RoundedCornerShape(12.dp))
+                                .clickable { audioPicker.launch("audio/*") }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
+                            Text("Pick Audio", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                        if (selectedAudioUri != null) {
                             Box(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .background(if (!noiseOn) Color(0xFFFF2E63) else Color.Transparent, RoundedCornerShape(22.dp))
-                                    .clickable { noiseOn = false },
-                                contentAlignment = Alignment.Center
-                            ) { Text("Off", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp) }
-
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .background(if (noiseOn) Color(0xFFFF2E63) else Color.Transparent, RoundedCornerShape(22.dp))
-                                    .clickable { noiseOn = true },
-                                contentAlignment = Alignment.Center
-                            ) { Text("On", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp) }
-                        }
-                    }
-                }
-
-                RecTool.EFFECTS -> {
-                    PanelCard(title = "EFFECTS") {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            effects.forEach { item ->
-                                SelectChip(text = item, selected = item == selectedEffect, onClick = { selectedEffect = item })
-                            }
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        SliderRow("LEVEL", effectLevel, minValue = 0, maxValue = 10) { effectLevel = it }
-                    }
-                }
-
-                RecTool.SOUNDS -> {
-                    PanelCard(title = "SOUNDS") {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            sounds.forEach { item ->
-                                SelectChip(text = item, selected = item == selectedSound, onClick = { selectedSound = item })
-                            }
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        SliderRow("VOLUME", soundVolume, minValue = 0, maxValue = 10) { soundVolume = it }
-                        Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Color(0xFF171923), RoundedCornerShape(12.dp))
-                                    .border(1.dp, Color(0xFF2A2D3A), RoundedCornerShape(12.dp))
-                                    .clickable { audioPicker.launch("audio/*") }
+                                    .background(Color(0xFF350817), RoundedCornerShape(12.dp))
+                                    .border(1.dp, Color(0xFFFF2E63), RoundedCornerShape(12.dp))
+                                    .clickable { MediaSelectionStore.setAudio(null) }
                                     .padding(horizontal = 12.dp, vertical = 8.dp)
                             ) {
-                                Text("Pick Audio", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
-                            if (selectedAudioUri != null) {
-                                Box(
-                                    modifier = Modifier
-                                        .background(Color(0xFF350817), RoundedCornerShape(12.dp))
-                                        .border(1.dp, Color(0xFFFF2E63), RoundedCornerShape(12.dp))
-                                        .clickable { MediaSelectionStore.setAudio(null) }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                                ) {
-                                    Text("Clear", color = Color(0xFFFF2E63), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                }
+                                Text("Clear", color = Color(0xFFFF2E63), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
                         }
                     }
@@ -388,14 +332,14 @@ fun RecScreen(onClose: () -> Unit) {
                         } else {
                             sec = 0
                             val name = "tikTok_${System.currentTimeMillis()}"
-                            val contentValues = ContentValues().apply {
-                                put(MediaStore.MediaColumns.DISPLAY_NAME, name)
-                                put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
-                                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/TikTokClone")
+                            val contentValues = android.content.ContentValues().apply {
+                                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name)
+                                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                                put(android.provider.MediaStore.Video.Media.RELATIVE_PATH, "Movies/TikTokClone")
                             }
-                            val outputOptions = MediaStoreOutputOptions.Builder(
+                            val outputOptions = androidx.camera.video.MediaStoreOutputOptions.Builder(
                                 context.contentResolver,
-                                MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                                android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
                             ).setContentValues(contentValues).build()
                             recording = capture.output
                                 .prepareRecording(context, outputOptions)
@@ -442,22 +386,12 @@ fun RecScreen(onClose: () -> Unit) {
 
         if (showSaveSheet) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.55f))
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f))
                     .clickable { showSaveSheet = false }
             )
-
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.BottomCenter
-            ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
                 SaveVideoSheet(
-                    onNewVideo = {
-                        showSaveSheet = false
-                        sec = 0
-                        isRecording = false
-                    },
+                    onNewVideo = { showSaveSheet = false; sec = 0; isRecording = false },
                     onDiscard = { showSaveSheet = false },
                     onSave = {
                         showSaveSheet = false
@@ -483,10 +417,7 @@ fun RecScreen(onClose: () -> Unit) {
                             }
                         }
                     },
-                    onPost = {
-                        showSaveSheet = false
-                        showPublishSheet = true
-                    }
+                    onPost = { showSaveSheet = false; showPublishSheet = true }
                 )
             }
         }
@@ -496,38 +427,30 @@ fun RecScreen(onClose: () -> Unit) {
                 onDismiss = { showPublishSheet = false },
                 onPublish = { caption, privacy ->
                     showPublishSheet = false
-                    val fakeBytes = ByteArray(1024) { 0 }
                     publishVm.publish(
-                        fileBytes = fakeBytes,
+                        fileBytes = ByteArray(1024) { 0 },
                         fileName = "recorded.mp4",
                         caption = caption,
                         privacy = privacy
                     )
                 },
                 isBusy = publishState.stage == PublishStage.Uploading ||
-                    publishState.stage == PublishStage.Publishing
+                        publishState.stage == PublishStage.Publishing
             )
         }
 
         if (publishState.stage != PublishStage.Idle) {
-            PublishStatusOverlay(
-                state = publishState,
-                onClose = { publishVm.reset() }
-            )
+            PublishStatusOverlay(state = publishState, onClose = { publishVm.reset() })
         }
     }
 }
 
 private suspend fun android.content.Context.getCameraProvider(): ProcessCameraProvider =
     suspendCancellableCoroutine { continuation ->
-        val future = ProcessCameraProvider.getInstance(this)
-        future.addListener(
+        ProcessCameraProvider.getInstance(this).addListener(
             {
-                try {
-                    continuation.resume(future.get())
-                } catch (t: Throwable) {
-                    continuation.resumeWithException(t)
-                }
+                try { continuation.resume(ProcessCameraProvider.getInstance(this).get()) }
+                catch (t: Throwable) { continuation.resumeWithException(t) }
             },
             ContextCompat.getMainExecutor(this)
         )
@@ -536,13 +459,13 @@ private suspend fun android.content.Context.getCameraProvider(): ProcessCameraPr
 private fun effectOverlayColor(effect: String, level: Float): Color {
     val alpha = (0.08f + (level * 0.22f)).coerceIn(0f, 0.30f)
     return when (effect) {
-        "Small Room" -> Color(0x224A6FA5).copy(alpha = alpha)
-        "Medium Room" -> Color(0x223B7A6E).copy(alpha = alpha)
-        "Cathedral" -> Color(0x228E6CB3).copy(alpha = alpha)
-        "Large Room" -> Color(0x22617DA8).copy(alpha = alpha)
-        "Medium Hall" -> Color(0x22A66C4C).copy(alpha = alpha)
-        "Large Hall" -> Color(0x225D8FA3).copy(alpha = alpha)
+        "Small Room"     -> Color(0x224A6FA5).copy(alpha = alpha)
+        "Medium Room"    -> Color(0x223B7A6E).copy(alpha = alpha)
+        "Cathedral"      -> Color(0x228E6CB3).copy(alpha = alpha)
+        "Large Room"     -> Color(0x22617DA8).copy(alpha = alpha)
+        "Medium Hall"    -> Color(0x22A66C4C).copy(alpha = alpha)
+        "Large Hall"     -> Color(0x225D8FA3).copy(alpha = alpha)
         "Medium Chamber" -> Color(0x22B06F8C).copy(alpha = alpha)
-        else -> Color.Transparent
+        else             -> Color.Transparent
     }
 }

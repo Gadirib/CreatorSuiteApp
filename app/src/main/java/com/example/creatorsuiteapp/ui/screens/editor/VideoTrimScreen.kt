@@ -2,15 +2,8 @@
 package com.example.creatorsuiteapp.ui.screens.editor
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Typeface
 import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.text.SpannableString
-import android.text.Spanned
-import android.text.style.AbsoluteSizeSpan
-import android.text.style.ForegroundColorSpan
-import android.text.style.StyleSpan
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -45,29 +38,23 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.RawResourceDataSource
-import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.Brightness
 import androidx.media3.effect.Contrast
 import androidx.media3.effect.HslAdjustment
-import androidx.media3.effect.OverlayEffect
-import androidx.media3.effect.OverlaySettings
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.RgbAdjustment
-import androidx.media3.effect.TextOverlay
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
-import androidx.media3.transformer.EditedMediaItem
-import androidx.media3.transformer.Effects
-import androidx.media3.transformer.ExportException
-import androidx.media3.transformer.ExportResult
-import androidx.media3.transformer.Transformer
-import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.example.creatorsuiteapp.R
 import com.example.creatorsuiteapp.data.media.MediaSelectionStore
 import com.example.creatorsuiteapp.data.repository.SavedVideoRepository
+import com.example.creatorsuiteapp.ui.screens.rec.PublishSheet
+import com.example.creatorsuiteapp.ui.screens.rec.PublishStatusOverlay
+import com.example.creatorsuiteapp.ui.theme.AppStickers
+import com.example.creatorsuiteapp.ui.viewmodel.PublishStage
+import com.example.creatorsuiteapp.ui.viewmodel.PublishViewModel
 import kotlinx.coroutines.*
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
@@ -75,8 +62,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 import androidx.compose.ui.geometry.Offset as GOffset
 import java.io.File
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -84,10 +69,11 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
     val accentPink = Color(0xFFFF2E63)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val publishVm: PublishViewModel = viewModel()
+    val publishState by publishVm.state.collectAsState()
 
     val selectedVideoUri by MediaSelectionStore.videoUri.collectAsState()
 
-    // ── Player ────────────────────────────────────────────────────────────────
     val exoPlayer = remember { ExoPlayer.Builder(context).build() }
     var isPlaying by remember { mutableStateOf(false) }
     var playerProgress by remember { mutableFloatStateOf(0f) }
@@ -102,7 +88,6 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
         exoPlayer.setMediaSource(videoSource)
         exoPlayer.prepare()
         exoPlayer.playWhenReady = false
-        // ✅ Poll until ExoPlayer reports valid duration
         repeat(20) {
             delay(250)
             val dur = exoPlayer.duration
@@ -113,7 +98,6 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
         }
     }
 
-    // Progress polling
     LaunchedEffect(Unit) {
         while (true) {
             delay(100)
@@ -125,19 +109,16 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
         }
     }
 
-    // ── Tabs ──────────────────────────────────────────────────────────────────
     var selectedTab by remember { mutableStateOf("Trimming") }
 
-    // ── Trimming state ────────────────────────────────────────────────────────
     var leftFraction by remember { mutableFloatStateOf(0f) }
     var rightFraction by remember { mutableFloatStateOf(1f) }
     var splitFraction by remember { mutableFloatStateOf(0f) }
-    var selectedAction by remember { mutableStateOf("") } // "Trim" or "Split"
+    var selectedAction by remember { mutableStateOf("") }
     var isTrimming by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
     var trimError by remember { mutableStateOf<String?>(null) }
 
-    // Thumbnail frames for trimming strip
     var thumbFrames by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
     LaunchedEffect(selectedVideoUri) {
         val uri = selectedVideoUri ?: return@LaunchedEffect
@@ -164,35 +145,45 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
         }
     }
 
-    // ── Adjust state ──────────────────────────────────────────────────────────
     val adjustTabs = listOf("contrast", "brightness", "saturation", "exposure", "vibrance")
     var selectedAdjust by remember { mutableStateOf("contrast") }
     val adjustValues = remember {
         mutableStateMapOf("contrast" to 0f, "brightness" to 0f, "saturation" to 0f, "exposure" to 0f, "vibrance" to 0f)
     }
 
-    // ── Size state ────────────────────────────────────────────────────────────
     val ratios = listOf("Original", "1:1", "5:4", "9:16", "16:9")
     var selectedRatio by remember { mutableStateOf("Original") }
 
     LaunchedEffect(
-        adjustValues["contrast"],
-        adjustValues["brightness"],
-        adjustValues["saturation"],
-        adjustValues["exposure"],
-        adjustValues["vibrance"],
-        selectedRatio
+        selectedRatio,
+        adjustValues["contrast"], adjustValues["brightness"],
+        adjustValues["saturation"], adjustValues["exposure"], adjustValues["vibrance"]
     ) {
-        exoPlayer.setVideoEffects(
-            buildSizeExportEffects(selectedRatio) + buildEffects(adjustValues.toMap())
-        )
+        delay(300)
+        val sizeEffects: List<androidx.media3.common.Effect> = when (selectedRatio) {
+            "1:1"  -> listOf(Presentation.createForAspectRatio(1f, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP))
+            "5:4"  -> listOf(Presentation.createForAspectRatio(5f/4f, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP))
+            "9:16" -> listOf(Presentation.createForAspectRatio(9f/16f, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP))
+            "16:9" -> listOf(Presentation.createForAspectRatio(16f/9f, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP))
+            else   -> emptyList()
+        }
+        val allEffects = sizeEffects + buildEffects(adjustValues.toMap())
+        val currentPos = exoPlayer.currentPosition
+        val wasPlaying = exoPlayer.isPlaying
+        exoPlayer.pause()
+        exoPlayer.setVideoEffects(allEffects)
+        val uri = selectedVideoUri ?: RawResourceDataSource.buildRawResourceUri(R.raw.sample_video_1)
+        val factory = DefaultDataSource.Factory(context)
+        val source = ProgressiveMediaSource.Factory(factory).createMediaSource(MediaItem.fromUri(uri))
+        exoPlayer.setMediaSource(source)
+        exoPlayer.prepare()
+        exoPlayer.seekTo(currentPos)
+        exoPlayer.playWhenReady = wasPlaying
     }
 
-    // ── Text state ────────────────────────────────────────────────────────────
     var textInput by remember { mutableStateOf("YOUR TEXT") }
     val fontStyles = listOf("Style 1", "Style 2", "Style 3", "Style 4", "Style 5", "Style 6")
     var selectedFontStyle by remember { mutableStateOf("Style 3") }
-    // 27 colors (3×3×3 RGB cube) as per document
     val textColors = remember {
         listOf(
             Color.White, Color.Black,
@@ -212,24 +203,21 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
     var textOffsetY by remember { mutableFloatStateOf(0f) }
     var textScale by remember { mutableFloatStateOf(1f) }
 
-    // ── Sticker state ─────────────────────────────────────────────────────────
-    // 5 packs × 10 stickers each — assets named StickerP{pack}_{index}
-    val stickerPacks = listOf("Pack 1", "Pack 2", "Pack 3", "Pack 4", "Pack 5")
-    var selectedPack by remember { mutableStateOf("Pack 3") }
-    val stickerItems = listOf(
-        R.drawable.sticker_1, R.drawable.sticker_2, R.drawable.sticker_3,
-        R.drawable.sticker_4, R.drawable.sticker_5, R.drawable.sticker_6,
-        R.drawable.sticker_1, R.drawable.sticker_2, R.drawable.sticker_3,
-        R.drawable.sticker_4
-    )
-    var selectedStickerRes by remember { mutableIntStateOf(R.drawable.sticker_1) }
+    val stickerPacks = AppStickers.packNames
+    var selectedPack by remember { mutableStateOf("Pack 1") }
+    val stickerItems by remember(selectedPack) {
+        derivedStateOf { AppStickers.forPack(selectedPack) }
+    }
+    var selectedStickerRes by remember { mutableIntStateOf(AppStickers.Pack1.first()) }
     var stickerOffsetX by remember { mutableFloatStateOf(0f) }
     var stickerOffsetY by remember { mutableFloatStateOf(0f) }
     var stickerScale by remember { mutableFloatStateOf(1f) }
+    var stickerApplied by remember { mutableStateOf(false) }
+
+    var showPublishSheet by remember { mutableStateOf(false) }
     var previewWidthPx by remember { mutableFloatStateOf(0f) }
     var previewHeightPx by remember { mutableFloatStateOf(0f) }
 
-    // ── Layout ────────────────────────────────────────────────────────────────
     Box(
         modifier = Modifier.fillMaxSize().background(Color.Black)
     ) {
@@ -238,7 +226,6 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
         ) {
             Spacer(Modifier.height(36.dp))
 
-            // Header
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("←", color = Color.White, fontSize = 26.sp, modifier = Modifier.clickable { onClose() })
                 Spacer(Modifier.width(8.dp))
@@ -256,7 +243,6 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
             Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF202433)))
             Spacer(Modifier.height(12.dp))
 
-            // ── Video Player ──────────────────────────────────────────────────
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth().height(240.dp)
@@ -266,23 +252,63 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
             ) {
                 val boxW = with(LocalDensity.current) { maxWidth.toPx() }
                 val boxH = with(LocalDensity.current) { maxHeight.toPx() }
-                LaunchedEffect(boxW, boxH) {
-                    previewWidthPx = boxW
-                    previewHeightPx = boxH
+                SideEffect { previewWidthPx = boxW; previewHeightPx = boxH }
+
+                val targetAspect = when (selectedRatio) {
+                    "1:1"  -> 1f / 1f
+                    "5:4"  -> 5f / 4f
+                    "9:16" -> 9f / 16f
+                    "16:9" -> 16f / 9f
+                    else   -> null
                 }
+                val previewModifier = if (targetAspect != null) {
+                    val containerAspect = boxW / boxH
+                    if (targetAspect < containerAspect) {
+                        val newWDp = with(LocalDensity.current) { (boxH * targetAspect).toDp() }
+                        Modifier.width(newWDp).fillMaxHeight().align(Alignment.Center)
+                    } else {
+                        val newHDp = with(LocalDensity.current) { (boxW / targetAspect).toDp() }
+                        Modifier.fillMaxWidth().height(newHDp).align(Alignment.Center)
+                    }
+                } else Modifier.fillMaxSize()
 
                 AndroidView(
-                    factory = {
-                        PlayerView(it).apply {
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
                             useController = false
-                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                             player = exoPlayer
                         }
                     },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = previewModifier
                 )
 
-                // TikTok badge top left
+                val bVal = (adjustValues["brightness"] ?: 0f)
+                val cVal = (adjustValues["contrast"] ?: 0f)
+                val sVal = (adjustValues["saturation"] ?: 0f)
+                val eVal = (adjustValues["exposure"] ?: 0f)
+                if (bVal != 0f || cVal != 0f || sVal != 0f || eVal != 0f) {
+                    val combinedBrightness = (bVal + eVal * 0.5f) / 100f
+                    val overlayColor = when {
+                        combinedBrightness > 0f -> Color.White.copy(alpha = (combinedBrightness * 0.4f).coerceIn(0f, 0.5f))
+                        combinedBrightness < 0f -> Color.Black.copy(alpha = (-combinedBrightness * 0.5f).coerceIn(0f, 0.6f))
+                        else -> Color.Transparent
+                    }
+                    val contrastAlpha = (kotlin.math.abs(cVal) / 100f * 0.3f).coerceIn(0f, 0.3f)
+                    val satAlpha = (sVal / 100f * 0.15f).coerceIn(0f, 0.15f)
+
+                    if (overlayColor != Color.Transparent)
+                        Box(modifier = Modifier.matchParentSize().background(overlayColor))
+                    if (contrastAlpha > 0f)
+                        Box(modifier = Modifier.matchParentSize().background(
+                            if (cVal > 0f) Color.Black.copy(alpha = contrastAlpha)
+                            else Color.White.copy(alpha = contrastAlpha)))
+                    if (satAlpha > 0f)
+                        Box(modifier = Modifier.matchParentSize().background(
+                            if (sVal > 0f) Color(0xFFFF6B9D).copy(alpha = satAlpha)
+                            else Color(0xFF888888).copy(alpha = satAlpha)))
+                }
+
                 Box(
                     modifier = Modifier.padding(10.dp).size(24.dp).background(accentPink, RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
@@ -290,14 +316,12 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
                     Image(painterResource(R.drawable.ic_tiktok), null, modifier = Modifier.size(12.dp), colorFilter = ColorFilter.tint(Color.White))
                 }
 
-                // Expand icon top right
                 Image(
                     painterResource(R.drawable.ic_expand), null,
                     modifier = Modifier.align(Alignment.TopEnd).padding(10.dp).size(24.dp),
                     colorFilter = ColorFilter.tint(Color.White.copy(0.9f))
                 )
 
-                // Play button center
                 Box(
                     modifier = Modifier
                         .align(Alignment.Center).size(64.dp)
@@ -310,8 +334,7 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
                     Text(if (isPlaying) "⏸" else "▶", color = Color.White, fontSize = 22.sp)
                 }
 
-                // Text overlay (Text tab)
-                if (selectedTab == "Text" && textInput.isNotBlank()) {
+                if (textInput.isNotBlank()) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
@@ -326,16 +349,11 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
                                 }
                             }
                     ) {
-                        Text(
-                            textInput,
-                            style = textStyleFor(selectedFontStyle, selectedTextColor),
-                            fontSize = (18f * textScale).sp
-                        )
+                        Text(textInput, style = textStyleFor(selectedFontStyle, selectedTextColor), fontSize = (18f * textScale).sp)
                     }
                 }
 
-                // Sticker overlay (Sticker tab)
-                if (selectedTab == "Sticker") {
+                if (stickerOffsetX != 0f || stickerOffsetY != 0f || selectedTab == "Sticker") {
                     Image(
                         painterResource(selectedStickerRes), null,
                         modifier = Modifier
@@ -352,7 +370,6 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
                     )
                 }
 
-                // Timeline scrubber at bottom of player
                 Row(
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -378,11 +395,9 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
 
             Spacer(Modifier.height(14.dp))
 
-            // ── Tab content ───────────────────────────────────────────────────
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when (selectedTab) {
 
-                    // ── TRIMMING ──────────────────────────────────────────────
                     "Trimming" -> Column(Modifier.fillMaxWidth()) {
                         Text("SELECTED RANGE", color = Color(0xFF7D8198), fontSize = 11.sp, letterSpacing = 2.sp)
                         val selectedSec = splitFraction * durationMs / 1000.0
@@ -395,7 +410,6 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
 
                         Spacer(Modifier.height(12.dp))
 
-                        // Thumbnail strip with handles
                         BoxWithConstraints(
                             modifier = Modifier.fillMaxWidth().height(88.dp)
                                 .background(Color(0xFF11131D), RoundedCornerShape(18.dp))
@@ -408,7 +422,6 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
                             val handleWPx = with(density) { handleW.toPx() }
                             val minGap = 0.1f
 
-                            // Thumbnail frames
                             Row(
                                 modifier = Modifier.fillMaxSize(),
                                 horizontalArrangement = Arrangement.spacedBy(0.dp)
@@ -430,32 +443,27 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
                                 }
                             }
 
-                            // Dimmed area outside selection
                             val leftX = with(density) { (leftFraction * boxW).toDp() }
                             val rightX = with(density) { (rightFraction * boxW).toDp() }
                             Box(Modifier.width(leftX).fillMaxHeight().background(Color.Black.copy(0.6f)))
                             Box(Modifier.width(maxWidth - rightX).fillMaxHeight().align(Alignment.TopEnd).background(Color.Black.copy(0.6f)))
 
-                            // Selection border
                             val selW = with(density) { ((rightFraction - leftFraction) * boxW).toDp() }
                             Box(
                                 modifier = Modifier.offset(x = leftX).width(selW).fillMaxHeight()
                                     .border(2.dp, accentPink, RoundedCornerShape(14.dp))
                             )
 
-                            // Current position needle
                             val needleX = with(density) { (splitFraction * boxW).toDp() }
                             Box(
                                 modifier = Modifier.offset(x = needleX - 1.dp).width(2.dp).fillMaxHeight()
                                     .background(Color.White)
                             )
-                            // Needle head
                             Box(
                                 modifier = Modifier.offset(x = needleX - 6.dp, y = (-4).dp)
                                     .size(12.dp).background(Color.White, RoundedCornerShape(6.dp))
                             )
 
-                            // Left handle
                             val leftHandleX = with(density) { ((leftFraction * boxW) - handleWPx / 2f).toDp() }
                             Box(
                                 modifier = Modifier
@@ -471,7 +479,6 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
                                 contentAlignment = Alignment.Center
                             ) { Text("||", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp) }
 
-                            // Right handle
                             val rightHandleX = with(density) { ((rightFraction * boxW) - handleWPx / 2f).toDp() }
                             Box(
                                 modifier = Modifier
@@ -520,7 +527,6 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
                                             if (out != null) {
                                                 isTrimming = false
                                                 isSaving = true
-                                                // Save to repository — generates thumbnail, writes JSON
                                                 SavedVideoRepository.importVideo(context, out)
                                                 isSaving = false
                                                 onSaved()
@@ -539,12 +545,10 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
                         }
                     }
 
-                    // ── SIZE ──────────────────────────────────────────────────
                     "Size" -> Column(Modifier.fillMaxWidth()) {
                         Text("ASPECT RATIO", color = Color(0xFF7D8198), fontSize = 11.sp, letterSpacing = 2.sp)
                         Spacer(Modifier.height(12.dp))
 
-                        // First row: Original, 1:1, 5:4
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             AspectRatioCard(Modifier.weight(1f), "Original", selectedRatio == "Original", videoUri = selectedVideoUri) { selectedRatio = "Original" }
                             AspectRatioCard(Modifier.weight(1f), "1:1", selectedRatio == "1:1") { selectedRatio = "1:1" }
@@ -560,48 +564,17 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
 
                         Spacer(Modifier.height(14.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            CancelApplyRow(
-                                canApply = true,
-                                accentPink = accentPink,
+                            CancelApplyRow(canApply = true, accentPink = accentPink,
                                 onCancel = { selectedRatio = "Original" },
-                                onApply = {
-                                    val uri = selectedVideoUri ?: return@CancelApplyRow
-                                    isSaving = true
-                                    trimError = null
-                                    scope.launch {
-                                        runCatching {
-                                            val out = withTimeoutOrNull(120_000L) {
-                                                exportEditedVideo(
-                                                    context = context,
-                                                    sourceUri = uri,
-                                                    videoEffects = buildBaseExportEffects(
-                                                        selectedRatio = selectedRatio,
-                                                        adjustValues = adjustValues.toMap()
-                                                    )
-                                                )
-                                            }
-                                            if (out != null) {
-                                                SavedVideoRepository.importVideo(context, out)
-                                                onSaved()
-                                            } else {
-                                                trimError = "Export timed out"
-                                            }
-                                        }.onFailure { e ->
-                                            trimError = e.message ?: "Export failed"
-                                        }
-                                        isSaving = false
-                                    }
-                                }
+                                onApply = { selectedTab = "Trimming" }
                             )
                         }
                     }
 
-                    // ── ADJUST ────────────────────────────────────────────────
                     "Adjust" -> Column(Modifier.fillMaxWidth()) {
                         Text("ADJUST", color = Color(0xFF7D8198), fontSize = 11.sp, letterSpacing = 2.sp)
                         Spacer(Modifier.height(10.dp))
 
-                        // Adjust tabs
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly
@@ -619,7 +592,6 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
 
                         Spacer(Modifier.height(20.dp))
 
-                        // Ruler -100 to 100
                         AdjustRuler(
                             value = adjustValues[selectedAdjust] ?: 0f,
                             onValueChange = { adjustValues[selectedAdjust] = it },
@@ -630,39 +602,11 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             CancelApplyRow(canApply = true, accentPink = accentPink,
                                 onCancel = { adjustValues[selectedAdjust] = 0f },
-                                onApply = {
-                                    val uri = selectedVideoUri ?: return@CancelApplyRow
-                                    isSaving = true
-                                    trimError = null
-                                    scope.launch {
-                                        runCatching {
-                                            val out = withTimeoutOrNull(120_000L) {
-                                                exportEditedVideo(
-                                                    context = context,
-                                                    sourceUri = uri,
-                                                    videoEffects = buildBaseExportEffects(
-                                                        selectedRatio = selectedRatio,
-                                                        adjustValues = adjustValues.toMap()
-                                                    )
-                                                )
-                                            }
-                                            if (out != null) {
-                                                SavedVideoRepository.importVideo(context, out)
-                                                onSaved()
-                                            } else {
-                                                trimError = "Export timed out"
-                                            }
-                                        }.onFailure { e ->
-                                            trimError = e.message ?: "Export failed"
-                                        }
-                                        isSaving = false
-                                    }
-                                }
+                                onApply = { selectedTab = "Trimming" }
                             )
                         }
                     }
 
-                    // ── TEXT ──────────────────────────────────────────────────
                     "Text" -> Column(
                         Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
                     ) {
@@ -686,7 +630,6 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
 
                         Spacer(Modifier.height(14.dp))
 
-                        // Font styles
                         Text("FONT", color = Color(0xFF7D8198), fontSize = 10.sp, letterSpacing = 1.5.sp)
                         Spacer(Modifier.height(8.dp))
                         LazyRow(
@@ -717,7 +660,6 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
 
                         Spacer(Modifier.height(14.dp))
 
-                        // Color palette — 27 colors (3×3×3 RGB cube) per document
                         Text("COLOR", color = Color(0xFF7D8198), fontSize = 10.sp, letterSpacing = 1.5.sp)
                         Spacer(Modifier.height(8.dp))
                         LazyRow(
@@ -750,60 +692,21 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
                                 thumbColor = accentPink
                             )
                         )
-
                         Spacer(Modifier.height(14.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             CancelApplyRow(canApply = textInput.isNotBlank(), accentPink = accentPink,
                                 onCancel = { textInput = ""; textOffsetX = 0f; textOffsetY = 0f; textScale = 1f },
-                                onApply = {
-                                    val uri = selectedVideoUri ?: return@CancelApplyRow
-                                    isSaving = true
-                                    trimError = null
-                                    scope.launch {
-                                        runCatching {
-                                            val out = withTimeoutOrNull(120_000L) {
-                                                exportEditedVideo(
-                                                    context = context,
-                                                    sourceUri = uri,
-                                                    videoEffects = buildBaseExportEffects(
-                                                        selectedRatio = selectedRatio,
-                                                        adjustValues = adjustValues.toMap()
-                                                    ) + buildTextExportEffects(
-                                                        text = textInput,
-                                                        style = selectedFontStyle,
-                                                        color = selectedTextColor,
-                                                        offsetX = textOffsetX,
-                                                        offsetY = textOffsetY,
-                                                        scale = textScale,
-                                                        previewWidthPx = previewWidthPx,
-                                                        previewHeightPx = previewHeightPx
-                                                    )
-                                                )
-                                            }
-                                            if (out != null) {
-                                                SavedVideoRepository.importVideo(context, out)
-                                                onSaved()
-                                            } else {
-                                                trimError = "Export timed out"
-                                            }
-                                        }.onFailure { e ->
-                                            trimError = e.message ?: "Export failed"
-                                        }
-                                        isSaving = false
-                                    }
-                                }
+                                onApply = { selectedTab = "Trimming" }
                             )
                         }
                     }
 
-                    // ── STICKER ───────────────────────────────────────────────
                     "Sticker" -> Column(
                         Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
                     ) {
                         Text("ADD STICKERS", color = Color(0xFF7D8198), fontSize = 10.sp, letterSpacing = 1.5.sp)
                         Spacer(Modifier.height(8.dp))
 
-                        // Pack selector
                         Text("STICKER PACKS", color = Color(0xFF7D8198), fontSize = 10.sp, letterSpacing = 1.5.sp)
                         Spacer(Modifier.height(6.dp))
                         LazyRow(
@@ -823,7 +726,6 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
 
                         Spacer(Modifier.height(10.dp))
 
-                        // Sticker grid — 10 stickers per pack
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(3),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -861,47 +763,11 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
                                 thumbColor = accentPink
                             )
                         )
-
                         Spacer(Modifier.height(10.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             CancelApplyRow(canApply = true, accentPink = accentPink,
                                 onCancel = { stickerOffsetX = 0f; stickerOffsetY = 0f; stickerScale = 1f },
-                                onApply = {
-                                    val uri = selectedVideoUri ?: return@CancelApplyRow
-                                    isSaving = true
-                                    trimError = null
-                                    scope.launch {
-                                        runCatching {
-                                            val out = withTimeoutOrNull(120_000L) {
-                                                exportEditedVideo(
-                                                    context = context,
-                                                    sourceUri = uri,
-                                                    videoEffects = buildBaseExportEffects(
-                                                        selectedRatio = selectedRatio,
-                                                        adjustValues = adjustValues.toMap()
-                                                    ) + buildStickerExportEffects(
-                                                        context = context,
-                                                        stickerRes = selectedStickerRes,
-                                                        offsetX = stickerOffsetX,
-                                                        offsetY = stickerOffsetY,
-                                                        scale = stickerScale,
-                                                        previewWidthPx = previewWidthPx,
-                                                        previewHeightPx = previewHeightPx
-                                                    )
-                                                )
-                                            }
-                                            if (out != null) {
-                                                SavedVideoRepository.importVideo(context, out)
-                                                onSaved()
-                                            } else {
-                                                trimError = "Export timed out"
-                                            }
-                                        }.onFailure { e ->
-                                            trimError = e.message ?: "Export failed"
-                                        }
-                                        isSaving = false
-                                    }
-                                }
+                                onApply = { stickerApplied = true; selectedTab = "Trimming" }
                             )
                         }
                     }
@@ -909,26 +775,89 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
             }
         }
 
-        // ── Bottom tab bar ────────────────────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(80.dp)
-                .background(Color.Black)
-                .border(1.dp, Color(0xFF1F2230), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                .padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            EditorTabItem("Trimming", R.drawable.ic_trim_tool, selectedTab == "Trimming", accentPink) { selectedTab = "Trimming" }
-            EditorTabItem("Size", R.drawable.ic_size_tool, selectedTab == "Size", accentPink) { selectedTab = "Size" }
-            EditorTabItem("Adjust", R.drawable.ic_rec_fx, selectedTab == "Adjust", accentPink) { selectedTab = "Adjust" }
-            EditorTabItem("Text", R.drawable.ic_text_tool, selectedTab == "Text", accentPink) { selectedTab = "Text" }
-            EditorTabItem("Sticker", R.drawable.ic_sticker_tool, selectedTab == "Sticker", accentPink) { selectedTab = "Sticker" }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f).height(46.dp)
+                        .background(Color(0xFF141722), RoundedCornerShape(23.dp))
+                        .border(1.dp, Color(0xFF2A2E3F), RoundedCornerShape(23.dp))
+                        .clickable {
+                            val uri = selectedVideoUri ?: return@clickable
+                            isSaving = true; trimError = null
+                            scope.launch {
+                                runCatching {
+                                    val allEffects = buildSizeEffects(selectedRatio) +
+                                            buildEffects(adjustValues.toMap()) +
+                                            (if (textInput.isNotBlank()) buildTextEffects(textInput, selectedFontStyle,
+                                                selectedTextColor, textOffsetX, textOffsetY, textScale,
+                                                previewWidthPx, previewHeightPx) else emptyList()) +
+                                            (if (stickerApplied)
+                                                buildStickerEffects(context, selectedStickerRes, stickerOffsetX,
+                                                    stickerOffsetY, stickerScale, previewWidthPx, previewHeightPx,
+                                                    context.resources.displayMetrics.density)
+                                            else emptyList())
+                                    val out = withTimeoutOrNull(120_000L) {
+                                        if (allEffects.isEmpty()) {
+                                            SavedVideoRepository.importVideo(context, uri)
+                                            onSaved()
+                                            return@withTimeoutOrNull null
+                                        }
+                                        exportEditedVideo(context, uri, allEffects)
+                                    }
+                                    if (out != null) { SavedVideoRepository.importVideo(context, out); onSaved() }
+                                }.onFailure { e -> trimError = e.message ?: "Save failed" }
+                                isSaving = false
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("⬇  Save Video", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f).height(46.dp)
+                        .background(Color(0xFF350817), RoundedCornerShape(23.dp))
+                        .border(1.dp, accentPink, RoundedCornerShape(23.dp))
+                        .clickable { showPublishSheet = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Image(painterResource(R.drawable.ic_tiktok), null,
+                            modifier = Modifier.size(16.dp), colorFilter = ColorFilter.tint(accentPink))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Post to TikTok", color = accentPink, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth().height(80.dp)
+                    .background(Color.Black)
+                    .border(1.dp, Color(0xFF1F2230), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                    .padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                EditorTabItem("Trimming", R.drawable.ic_trim_tool, selectedTab == "Trimming", accentPink) { selectedTab = "Trimming" }
+                EditorTabItemDot("Size", R.drawable.ic_size_tool, selectedTab == "Size", accentPink, selectedRatio != "Original") { selectedTab = "Size" }
+                EditorTabItemDot("Adjust", R.drawable.ic_rec_fx, selectedTab == "Adjust", accentPink,
+                    adjustValues.values.any { it != 0f }) { selectedTab = "Adjust" }
+                EditorTabItemDot("Text", R.drawable.ic_text_tool, selectedTab == "Text", accentPink, textInput.isNotBlank()) { selectedTab = "Text" }
+                EditorTabItemDot("Sticker", R.drawable.ic_sticker_tool, selectedTab == "Sticker", accentPink,
+                    stickerOffsetX != 0f || stickerOffsetY != 0f || stickerScale != 1f) { selectedTab = "Sticker" }
+            }
         }
 
-        // Loading overlays
         if (isTrimming || isSaving) {
             Box(
                 modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)),
@@ -969,10 +898,28 @@ fun VideoTrimScreen(onClose: () -> Unit, onSaved: () -> Unit = onClose) {
             ) { Text("Error: $trimError", color = accentPink) }
         }
 
+        if (showPublishSheet) {
+            PublishSheet(
+                onDismiss = { showPublishSheet = false },
+                onPublish = { caption, privacy ->
+                    showPublishSheet = false
+                    val uri = selectedVideoUri
+                    if (uri != null) {
+                        publishVm.publishFromUri(uri, caption, privacy)
+                    } else {
+                        publishVm.publish(ByteArray(0), "video.mp4", caption, privacy)
+                    }
+                },
+                isBusy = publishState.stage == PublishStage.Uploading || publishState.stage == PublishStage.Publishing
+            )
+        }
+
+        if (publishState.stage != PublishStage.Idle) {
+            PublishStatusOverlay(state = publishState, onClose = { publishVm.reset() })
+        }
     }
 }
 
-// ── Composable helpers ────────────────────────────────────────────────────────
 
 @Composable
 private fun EditorTabItem(label: String, iconRes: Int, selected: Boolean, accent: Color, onClick: () -> Unit) {
@@ -992,6 +939,39 @@ private fun EditorTabItem(label: String, iconRes: Int, selected: Boolean, accent
         )
         Spacer(Modifier.height(4.dp))
         Text(label, color = if (selected) accent else Color(0xFF6F738A), fontSize = 10.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+    }
+}
+
+@Composable
+private fun EditorTabItemDot(label: String, iconRes: Int, selected: Boolean, accent: Color, hasEdit: Boolean, onClick: () -> Unit) {
+    Box {
+        Column(
+            modifier = Modifier
+                .width(60.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (selected) Color(0xFF2A0D16) else Color.Transparent)
+                .clickable { onClick() }
+                .padding(vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Image(
+                painterResource(iconRes), null,
+                modifier = Modifier.size(24.dp),
+                colorFilter = ColorFilter.tint(if (selected) accent else Color(0xFF6F738A))
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(label, color = if (selected) accent else Color(0xFF6F738A), fontSize = 10.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+        }
+        if (hasEdit) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 4.dp, end = 6.dp)
+                    .size(8.dp)
+                    .background(Color(0xFF2EE6A6), CircleShape)
+            )
+        }
     }
 }
 
@@ -1043,7 +1023,6 @@ private fun AspectRatioCard(
             AsyncImage(model = videoUri, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // Ratio frame indicator
             val (w, h) = when (label) {
                 "1:1" -> 36f to 36f; "5:4" -> 40f to 32f; "9:16" -> 22f to 38f; "16:9" -> 44f to 26f
                 else -> 36f to 26f
@@ -1061,10 +1040,8 @@ private fun AspectRatioCard(
 @Composable
 private fun AdjustRuler(value: Float, onValueChange: (Float) -> Unit, accentPink: Color) {
     Column(Modifier.fillMaxWidth()) {
-        // Value labels
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
             Text("-100", color = Color(0xFF6F738A), fontSize = 11.sp)
-            // Current value circle
             Box(
                 modifier = Modifier.size(36.dp).background(Color(0xFF1A1D29), CircleShape)
                     .border(1.dp, accentPink, CircleShape),
@@ -1075,7 +1052,6 @@ private fun AdjustRuler(value: Float, onValueChange: (Float) -> Unit, accentPink
 
         Spacer(Modifier.height(8.dp))
 
-        // Ruler tick marks
         androidx.compose.foundation.Canvas(
             modifier = Modifier.fillMaxWidth().height(40.dp)
         ) {
@@ -1083,7 +1059,6 @@ private fun AdjustRuler(value: Float, onValueChange: (Float) -> Unit, accentPink
             val centerY = size.height / 2f
             val normalizedPos = (value + 100f) / 200f
 
-            // Tick marks
             for (i in -100..100 step 5) {
                 val x = ((i + 100f) / 200f) * w
                 val isBig = i % 25 == 0
@@ -1096,12 +1071,10 @@ private fun AdjustRuler(value: Float, onValueChange: (Float) -> Unit, accentPink
                 )
             }
 
-            // Active line
             val posX = normalizedPos * w
             drawLine(Color(0xFFFF2E63), GOffset(posX, 0f), GOffset(posX, size.height), 3f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
         }
 
-        // Drag slider
         Slider(
             value = value,
             onValueChange = { onValueChange(it.coerceIn(-100f, 100f)) },
@@ -1131,148 +1104,7 @@ private fun formatMs(ms: Long): String {
     return "%02d:%02d".format(s / 60, s % 60)
 }
 
-// ── Trim + Effects ────────────────────────────────────────────────────────────
 
-private fun buildBaseExportEffects(
-    selectedRatio: String,
-    adjustValues: Map<String, Float>
-): List<androidx.media3.common.Effect> {
-    return buildSizeExportEffects(selectedRatio) + buildAdjustExportEffects(adjustValues)
-}
-
-private fun buildAdjustExportEffects(adjustValues: Map<String, Float>): List<androidx.media3.common.Effect> {
-    return buildEffects(adjustValues)
-}
-
-private fun buildSizeExportEffects(selectedRatio: String): List<androidx.media3.common.Effect> {
-    val ratio = when (selectedRatio) {
-        "1:1" -> 1f
-        "5:4" -> 5f / 4f
-        "9:16" -> 9f / 16f
-        "16:9" -> 16f / 9f
-        else -> null
-    } ?: return emptyList()
-
-    return listOf(
-        Presentation.createForAspectRatio(
-            ratio,
-            Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP
-        )
-    )
-}
-
-private fun buildTextExportEffects(
-    text: String,
-    style: String,
-    color: Color,
-    offsetX: Float,
-    offsetY: Float,
-    scale: Float,
-    previewWidthPx: Float,
-    previewHeightPx: Float
-): List<androidx.media3.common.Effect> {
-    if (text.isBlank()) return emptyList()
-
-    val spannable = SpannableString(text).apply {
-        setSpan(ForegroundColorSpan(color.toArgb()), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        setSpan(StyleSpan(typefaceStyleFor(style)), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        setSpan(AbsoluteSizeSpan((56f * scale).toInt(), false), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-    }
-
-    val overlaySettings = OverlaySettings.Builder()
-        .setBackgroundFrameAnchor(
-            normalizeOverlayAnchor(offsetX, previewWidthPx),
-            normalizeOverlayAnchor(offsetY, previewHeightPx)
-        )
-        .setOverlayFrameAnchor(0f, 0f)
-        .setScale(scale, scale)
-        .build()
-
-    return listOf(
-        OverlayEffect(
-            listOf(TextOverlay.createStaticTextOverlay(spannable, overlaySettings))
-        )
-    )
-}
-
-private fun buildStickerExportEffects(
-    context: android.content.Context,
-    stickerRes: Int,
-    offsetX: Float,
-    offsetY: Float,
-    scale: Float,
-    previewWidthPx: Float,
-    previewHeightPx: Float
-): List<androidx.media3.common.Effect> {
-    val bitmap = BitmapFactory.decodeResource(context.resources, stickerRes) ?: return emptyList()
-    val overlaySettings = OverlaySettings.Builder()
-        .setBackgroundFrameAnchor(
-            normalizeOverlayAnchor(offsetX, previewWidthPx),
-            normalizeOverlayAnchor(offsetY, previewHeightPx)
-        )
-        .setOverlayFrameAnchor(0f, 0f)
-        .setScale(0.28f * scale, 0.28f * scale)
-        .build()
-
-    return listOf(
-        OverlayEffect(
-            listOf(BitmapOverlay.createStaticBitmapOverlay(bitmap, overlaySettings))
-        )
-    )
-}
-
-private fun normalizeOverlayAnchor(offset: Float, sizePx: Float): Float {
-    if (sizePx <= 0f) return 0f
-    return ((offset / sizePx) * 2f).coerceIn(-1f, 1f)
-}
-
-private fun typefaceStyleFor(style: String): Int = when (style) {
-    "Style 2", "Style 3", "Style 5" -> Typeface.BOLD
-    "Style 4", "Style 6" -> Typeface.ITALIC
-    else -> Typeface.NORMAL
-}
-
-private suspend fun exportEditedVideo(
-    context: android.content.Context,
-    sourceUri: Uri,
-    videoEffects: List<androidx.media3.common.Effect>
-): Uri = suspendCancellableCoroutine { continuation ->
-    val outputFile = File(context.cacheDir, "edited_${System.currentTimeMillis()}.mp4")
-    val mediaItem = MediaItem.fromUri(sourceUri)
-    val editedMediaItem = EditedMediaItem.Builder(mediaItem)
-        .setEffects(Effects(emptyList(), videoEffects))
-        .build()
-
-    val transformer = Transformer.Builder(context)
-        .addListener(object : Transformer.Listener {
-            override fun onCompleted(composition: androidx.media3.transformer.Composition, exportResult: ExportResult) {
-                if (continuation.isActive) {
-                    continuation.resume(Uri.fromFile(outputFile))
-                }
-            }
-
-            override fun onError(
-                composition: androidx.media3.transformer.Composition,
-                exportResult: ExportResult,
-                exportException: ExportException
-            ) {
-                if (continuation.isActive) {
-                    continuation.resumeWithException(exportException)
-                }
-            }
-        })
-        .build()
-
-    continuation.invokeOnCancellation {
-        transformer.cancel()
-        outputFile.delete()
-    }
-
-    transformer.start(editedMediaItem, outputFile.absolutePath)
-}
-
-// ✅ Use MediaExtractor + MediaMuxer directly — avoids Media3 Transformer SIGABRT
-// on videos with large/invalid timestamps
 private suspend fun trimVideo(
     context: android.content.Context,
     sourceUri: Uri,
@@ -1284,7 +1116,6 @@ private suspend fun trimVideo(
     var muxer: android.media.MediaMuxer? = null
 
     try {
-        // Open source
         val fd = context.contentResolver.openFileDescriptor(sourceUri, "r")
         if (fd != null) {
             extractor.setDataSource(fd.fileDescriptor)
@@ -1294,11 +1125,10 @@ private suspend fun trimVideo(
         }
 
         val trackCount = extractor.trackCount
-        val muxerTrackMap = mutableMapOf<Int, Int>() // extractor track → muxer track
+        val muxerTrackMap = mutableMapOf<Int, Int>()
 
         muxer = android.media.MediaMuxer(outputFile.absolutePath, android.media.MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
 
-        // Add all tracks to muxer
         for (i in 0 until trackCount) {
             val format = extractor.getTrackFormat(i)
             val mime = format.getString(android.media.MediaFormat.KEY_MIME) ?: continue
@@ -1312,7 +1142,7 @@ private suspend fun trimVideo(
 
         val startUs = startMs * 1000L
         val endUs = endMs * 1000L
-        val bufferSize = 1024 * 1024 // 1MB
+        val bufferSize = 1024 * 1024
         val buffer = java.nio.ByteBuffer.allocate(bufferSize)
         val bufferInfo = android.media.MediaCodec.BufferInfo()
 
@@ -1329,7 +1159,7 @@ private suspend fun trimVideo(
                 if (sampleTime > endUs) break
                 if (sampleTime < startUs) { extractor.advance(); continue }
 
-                bufferInfo.presentationTimeUs = sampleTime - startUs // rebase to 0
+                bufferInfo.presentationTimeUs = sampleTime - startUs
                 bufferInfo.flags = extractor.sampleFlags
                 muxer.writeSampleData(muxerTrack, buffer, bufferInfo)
                 extractor.advance()
@@ -1348,6 +1178,95 @@ private suspend fun trimVideo(
 }
 
 
+
+
+@OptIn(UnstableApi::class)
+private fun buildSizeEffects(ratio: String): List<androidx.media3.common.Effect> = when (ratio) {
+    "1:1"  -> listOf(Presentation.createForAspectRatio(1f,      Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP))
+    "5:4"  -> listOf(Presentation.createForAspectRatio(5f/4f,   Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP))
+    "9:16" -> listOf(Presentation.createForAspectRatio(9f/16f,  Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP))
+    "16:9" -> listOf(Presentation.createForAspectRatio(16f/9f,  Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP))
+    else   -> emptyList()
+}
+
+@OptIn(UnstableApi::class)
+private fun buildTextEffects(
+    text: String, style: String, color: Color,
+    offsetX: Float, offsetY: Float, scale: Float,
+    previewW: Float, previewH: Float
+): List<androidx.media3.common.Effect> {
+    if (text.isBlank()) return emptyList()
+    val spannable = android.text.SpannableString(text).apply {
+        setSpan(android.text.style.ForegroundColorSpan(color.toArgb()), 0, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        val tf = when (style) {
+            "Style 2", "Style 3", "Style 5" -> android.graphics.Typeface.BOLD
+            "Style 4", "Style 6" -> android.graphics.Typeface.ITALIC
+            else -> android.graphics.Typeface.NORMAL
+        }
+        setSpan(android.text.style.StyleSpan(tf), 0, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        setSpan(android.text.style.AbsoluteSizeSpan((56f * scale).toInt()), 0, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+    val anchorX = if (previewW > 0f) (offsetX / (previewW / 2f)).coerceIn(-1f, 1f) else 0f
+    val anchorY = if (previewH > 0f) -(offsetY / (previewH / 2f)).coerceIn(-1f, 1f) else 0f
+    val settings = androidx.media3.effect.OverlaySettings.Builder()
+        .setBackgroundFrameAnchor(anchorX, anchorY)
+        .setOverlayFrameAnchor(0f, 0f)
+        .setScale(scale, scale)
+        .build()
+    return listOf(androidx.media3.effect.OverlayEffect(
+        listOf(androidx.media3.effect.TextOverlay.createStaticTextOverlay(spannable, settings))
+    ))
+}
+
+@OptIn(UnstableApi::class)
+private fun buildStickerEffects(
+    context: android.content.Context,
+    stickerRes: Int,
+    offsetX: Float, offsetY: Float, scale: Float,
+    previewW: Float, previewH: Float,
+    density: Float = context.resources.displayMetrics.density
+): List<androidx.media3.common.Effect> {
+    val bitmap = android.graphics.BitmapFactory.decodeResource(context.resources, stickerRes)
+        ?: return emptyList()
+    val anchorX = if (previewW > 0f) (offsetX / (previewW / 2f)).coerceIn(-1f, 1f) else 0f
+    val anchorY = if (previewH > 0f) -(offsetY / (previewH / 2f)).coerceIn(-1f, 1f) else 0f
+    val stickerPx = 100f * density * scale
+    val relativeScale = if (previewW > 0f) (stickerPx / previewW) else (0.15f * scale)
+    val settings = androidx.media3.effect.OverlaySettings.Builder()
+        .setBackgroundFrameAnchor(anchorX, anchorY)
+        .setOverlayFrameAnchor(0f, 0f)
+        .setScale(relativeScale, relativeScale)
+        .build()
+    return listOf(androidx.media3.effect.OverlayEffect(
+        listOf(androidx.media3.effect.BitmapOverlay.createStaticBitmapOverlay(bitmap, settings))
+    ))
+}
+
+private suspend fun exportEditedVideo(
+    context: android.content.Context,
+    sourceUri: android.net.Uri,
+    videoEffects: List<androidx.media3.common.Effect>
+): android.net.Uri = kotlin.coroutines.suspendCoroutine { continuation ->
+    val outputFile = java.io.File(context.cacheDir, "edited_${System.currentTimeMillis()}.mp4")
+    val editedItem = androidx.media3.transformer.EditedMediaItem.Builder(
+        androidx.media3.common.MediaItem.fromUri(sourceUri)
+    ).setEffects(androidx.media3.transformer.Effects(emptyList(), videoEffects)).build()
+
+    val transformer = androidx.media3.transformer.Transformer.Builder(context)
+        .addListener(object : androidx.media3.transformer.Transformer.Listener {
+            override fun onCompleted(composition: androidx.media3.transformer.Composition,
+                                     result: androidx.media3.transformer.ExportResult) {
+                continuation.resumeWith(Result.success(android.net.Uri.fromFile(outputFile)))
+            }
+            override fun onError(composition: androidx.media3.transformer.Composition,
+                                 result: androidx.media3.transformer.ExportResult,
+                                 ex: androidx.media3.transformer.ExportException) {
+                continuation.resumeWith(Result.failure(ex))
+            }
+        }).build()
+    transformer.start(editedItem, outputFile.absolutePath)
+}
+
 @OptIn(UnstableApi::class)
 private fun buildEffects(adjustValues: Map<String, Float>): List<androidx.media3.common.Effect> {
     val effects = mutableListOf<androidx.media3.common.Effect>()
@@ -1356,13 +1275,18 @@ private fun buildEffects(adjustValues: Map<String, Float>): List<androidx.media3
     val brightness = (adjustValues["brightness"] ?: 0f) / 100f
     if (brightness != 0f) effects += Brightness(brightness.coerceIn(-1f, 1f))
     val saturation = adjustValues["saturation"] ?: 0f
-    if (saturation != 0f) effects += HslAdjustment.Builder().adjustSaturation(saturation.coerceIn(-100f, 100f)).build()
-    val exposure = (adjustValues["exposure"] ?: 0f) / 100f
-    if (exposure != 0f) effects += Brightness((exposure * 0.5f).coerceIn(-1f, 1f))
+    if (saturation != 0f) effects += HslAdjustment.Builder()
+        .adjustSaturation(saturation.coerceIn(-100f, 100f)).build()
+    val exposure = (adjustValues["exposure"] ?: 0f) / 200f
+    if (exposure != 0f) effects += Brightness(exposure.coerceIn(-1f, 1f))
     val vibrance = adjustValues["vibrance"] ?: 0f
     if (vibrance != 0f) {
-        val scale = (1f + vibrance / 220f).coerceAtLeast(0f)
-        effects += RgbAdjustment.Builder().setRedScale(scale).setGreenScale(scale).setBlueScale(scale).build()
+        val boost = 1f + vibrance / 150f
+        effects += RgbAdjustment.Builder()
+            .setRedScale(boost.coerceAtLeast(0f))
+            .setGreenScale(boost.coerceAtLeast(0f))
+            .setBlueScale(boost.coerceAtLeast(0f))
+            .build()
     }
     return effects
 }

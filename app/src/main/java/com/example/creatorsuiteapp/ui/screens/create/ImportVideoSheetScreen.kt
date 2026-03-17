@@ -28,18 +28,16 @@ fun ImportVideoSheetScreen(
     val scope = rememberCoroutineScope()
     var isImporting by remember { mutableStateOf(false) }
 
-    // Shared import handler — takes persistent permission and opens the editor.
-    // Do not save here; saving should happen only after Apply Changes.
+    // Keeps URI access valid for the editor flow.
     fun handleUri(uri: android.net.Uri) {
         scope.launch {
             isImporting = true
             try {
-                // ✅ Take persistent read permission so ExoPlayer can access URI later
                 try {
                     context.contentResolver.takePersistableUriPermission(
                         uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
                     )
-                } catch (e: SecurityException) { /* some providers don't support it — fine */ }
+                } catch (e: SecurityException) {  }
 
                 MediaSelectionStore.setVideo(uri)
                 onPick()
@@ -49,12 +47,10 @@ fun ImportVideoSheetScreen(
         }
     }
 
-    // ✅ Videos — device gallery, filtered to videos only
     val videoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri -> if (uri != null) handleUri(uri) }
 
-    // ✅ Files — system file manager, restricted to video files only
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> if (uri != null) handleUri(uri) }
@@ -87,7 +83,6 @@ fun ImportVideoSheetScreen(
 
             Spacer(Modifier.height(14.dp))
 
-            // ✅ Videos — opens camera roll / media library
             ImportSourceRow(
                 text = "Videos",
                 iconRes = R.drawable.ic_files,
@@ -99,7 +94,6 @@ fun ImportVideoSheetScreen(
 
             Spacer(Modifier.height(10.dp))
 
-            // ✅ Files — opens system file manager, video files only
             ImportSourceRow(
                 text = "Files",
                 iconRes = R.drawable.ic_files,
@@ -112,7 +106,6 @@ fun ImportVideoSheetScreen(
             Spacer(Modifier.height(16.dp))
         }
 
-        // Loading overlay while importing
         if (isImporting) {
             Box(
                 modifier = Modifier

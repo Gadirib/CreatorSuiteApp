@@ -61,14 +61,12 @@ fun ContentScreen(
     val publishVm: PublishViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val publishState by publishVm.state.collectAsState()
 
-    // ✅ Observe real saved videos from repository
     val savedVideos by SavedVideoRepository.videos.collectAsState()
 
     var selectedVideo by remember { mutableStateOf<SavedVideo?>(null) }
     var publishTarget by remember { mutableStateOf<SavedVideo?>(null) }
     var searchQuery by remember { mutableStateOf("") }
 
-    // Load from JSON on first composition
     LaunchedEffect(Unit) {
         SavedVideoRepository.load(context)
     }
@@ -104,7 +102,6 @@ fun ContentScreen(
             ) {
                 Spacer(Modifier.height(8.dp))
 
-                // ── Header ────────────────────────────────────────────────────
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -129,7 +126,6 @@ fun ContentScreen(
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF22252C)))
                 Spacer(Modifier.height(12.dp))
 
-                // ── Sort + Search ─────────────────────────────────────────────
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -144,7 +140,6 @@ fun ContentScreen(
 
                 Spacer(Modifier.height(12.dp))
 
-                // ── Grid ──────────────────────────────────────────────────────
                 val normalizedQuery = searchQuery.trim().lowercase()
                 val filtered = savedVideos
                     .sortedByDescending { it.createdAt }
@@ -188,7 +183,6 @@ fun ContentScreen(
         }
     }
 
-    // ── Action sheet ──────────────────────────────────────────────────────────
     if (selectedVideo != null) {
         val video = selectedVideo!!
         VideoActionSheet(
@@ -236,7 +230,6 @@ fun ContentScreen(
     }
 }
 
-// ── Video grid cell ───────────────────────────────────────────────────────────
 
 @Composable
 private fun VideoGridCell(
@@ -252,7 +245,6 @@ private fun VideoGridCell(
             .background(Color(0xFF0A0C14))
             .clickable { onClick() }
     ) {
-        // ✅ Real thumbnail from {app}/Thumbnails/{uuid}.jpg
         if (thumbFile.exists()) {
             AsyncImage(
                 model = thumbFile,
@@ -261,11 +253,9 @@ private fun VideoGridCell(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            // Placeholder while thumbnail generates
             Box(Modifier.fillMaxSize().background(Color(0xFF1A1D29)))
         }
 
-        // TikTok badge — pink if posted, dark if not
         Box(
             modifier = Modifier
                 .padding(8.dp).size(24.dp)
@@ -282,7 +272,6 @@ private fun VideoGridCell(
             )
         }
 
-        // Duration badge
         val durationText = formatDuration(video.duration)
         Text(
             text = durationText,
@@ -302,7 +291,6 @@ private fun VideoGridCell(
     }
 }
 
-// ── Action sheet ──────────────────────────────────────────────────────────────
 
 @Composable
 private fun VideoActionSheet(
@@ -378,7 +366,6 @@ private fun VideoActionSheet(
 
             Spacer(Modifier.height(20.dp))
 
-            // ✅ Real thumbnail in action sheet
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -548,7 +535,6 @@ private fun VideoActionSheet(
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 private fun formatDuration(seconds: Double): String {
     if (seconds <= 0) return "00:00"

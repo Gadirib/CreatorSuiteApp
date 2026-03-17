@@ -15,8 +15,6 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             TikTokCloneTheme {
-                // AppRoot handles navigation — it checks login state internally
-                // and shows LoginScreen or main app depending on session
                 AppRoot()
             }
         }

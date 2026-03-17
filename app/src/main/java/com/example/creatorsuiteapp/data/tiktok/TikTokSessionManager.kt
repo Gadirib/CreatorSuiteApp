@@ -74,7 +74,6 @@ object TikTokSessionManager {
             .readTimeout(20, TimeUnit.SECONDS)
             .build()
 
-        // ✅ Use /passport/web/account/info/ first — faster and more reliable than parsing HTML
         try {
             val accountRequest = Request.Builder()
                 .url("https://www.tiktok.com/passport/web/account/info/")
@@ -94,7 +93,6 @@ object TikTokSessionManager {
                 val username = data.optString("username").takeIf { it.isNotEmpty() }
 
                 if (username != null) {
-                    // ✅ Now get secUid from profile HTML — correct JSON path from document
                     val secUid = fetchSecUid(client, cookies, username)
 
                     val avatar = data.optString("avatar_url").takeIf { it.isNotEmpty() }
@@ -108,7 +106,6 @@ object TikTokSessionManager {
             Log.e("TikTokSession", "AccountInfo failed, falling back to HTML parse", e)
         }
 
-        // ✅ Fallback: parse HTML from tiktok.com homepage
         try {
             val htmlRequest = Request.Builder()
                 .url("https://www.tiktok.com/")
@@ -134,8 +131,6 @@ object TikTokSessionManager {
             val jsonStr = html.substring(jsonStart, jsonEnd).trim()
             val json = JSONObject(jsonStr)
 
-            // ✅ FIXED: Correct JSON path — __DEFAULT_SCOPE__ → webapp.user-detail → userInfo → user
-            // Previous code tried json.getJSONObject("userInfo") directly — WRONG, always threw exception
             val userInfo = json
                 .getJSONObject("__DEFAULT_SCOPE__")
                 .getJSONObject("webapp.user-detail")
@@ -157,7 +152,6 @@ object TikTokSessionManager {
         }
     }
 
-    // ✅ Fetch secUid by parsing profile page — exact path from document §3 step 6
     private suspend fun fetchSecUid(
         client: OkHttpClient,
         cookies: String,
@@ -181,7 +175,6 @@ object TikTokSessionManager {
 
             val json = JSONObject(html.substring(jsonStart, jsonEnd).trim())
 
-            // ✅ Path from document: __DEFAULT_SCOPE__ → webapp.user-detail → userInfo → user → secUid
             json.getJSONObject("__DEFAULT_SCOPE__")
                 .getJSONObject("webapp.user-detail")
                 .getJSONObject("userInfo")

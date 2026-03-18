@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -339,10 +341,15 @@ private fun CleanerDeleteDoneOverlay(deletedCount: Int, onDismiss: () -> Unit) {
                 modifier = Modifier
                     .size(210.dp)
                     .clip(RoundedCornerShape(105.dp))
-                    .background(Color(0xFF005B2E).copy(alpha = 0.9f)),
+                    .background(Color(0xFF08B75D)),
                 contentAlignment = Alignment.Center
             ) {
-                Text("✓", color = Color.White, fontSize = 92.sp, fontWeight = FontWeight.Light)
+                Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(120.dp)
+                )
             }
             Spacer(Modifier.height(24.dp))
             Text("Done!", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)

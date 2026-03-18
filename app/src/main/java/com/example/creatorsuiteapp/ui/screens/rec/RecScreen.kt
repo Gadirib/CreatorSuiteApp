@@ -65,7 +65,12 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.launch
 import com.example.creatorsuiteapp.data.media.MediaSelectionStore
 import android.net.Uri
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
 import com.example.creatorsuiteapp.data.ServiceLocator
+import com.example.creatorsuiteapp.data.repository.SavedVideoRepository
 import java.io.File
 
 private enum class RecTool { PITCH, NOICE, EFFECTS, SOUNDS }
@@ -79,9 +84,11 @@ fun RecScreen(onClose: () -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
 
+    // ── Audio processor ───────────────────────────────────────────────────────
     val audioProcessor = remember { RealtimeAudioProcessor(context) }
     DisposableEffect(Unit) { onDispose { audioProcessor.release() } }
 
+    // ── State ─────────────────────────────────────────────────────────────────
     var isRecording by remember { mutableStateOf(false) }
     var sec by remember { mutableStateOf(0) }
     var showSaveSheet by remember { mutableStateOf(false) }
@@ -112,6 +119,7 @@ fun RecScreen(onClose: () -> Unit) {
     var selectedSound by remember { mutableStateOf("Moskito") }
     var soundVolume by remember { mutableFloatStateOf(0.55f) }
 
+    // ── Permissions ───────────────────────────────────────────────────────────
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result -> hasPermissions = result.values.all { it } }
@@ -131,6 +139,7 @@ fun RecScreen(onClose: () -> Unit) {
         }
     }
 
+    // ── Camera — skip re-bind while recording ─────────────────────────────────
     LaunchedEffect(hasPermissions, lensFacing) {
         if (!hasPermissions || isRecording) return@LaunchedEffect
         val cameraProvider = context.getCameraProvider()
@@ -155,6 +164,7 @@ fun RecScreen(onClose: () -> Unit) {
         camera?.cameraControl?.enableTorch(torchEnabled)
     }
 
+    // ── Timer ─────────────────────────────────────────────────────────────────
     LaunchedEffect(isRecording) {
         if (isRecording) {
             sec = 0
@@ -162,6 +172,7 @@ fun RecScreen(onClose: () -> Unit) {
         }
     }
 
+    // ── Layout ────────────────────────────────────────────────────────────────
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -176,6 +187,7 @@ fun RecScreen(onClose: () -> Unit) {
             }
         }
 
+        // Top bar
         Row(
             modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(top = 52.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -204,6 +216,7 @@ fun RecScreen(onClose: () -> Unit) {
             }
         }
 
+        // Tool panels
         Box(
             modifier = Modifier.align(Alignment.TopStart).padding(top = 170.dp).padding(end = 118.dp)
         ) {
@@ -258,9 +271,7 @@ fun RecScreen(onClose: () -> Unit) {
                                 .border(1.dp, Color(0xFF2A2D3A), RoundedCornerShape(12.dp))
                                 .clickable { audioPicker.launch("audio/*") }
                                 .padding(horizontal = 12.dp, vertical = 8.dp)
-                        ) {
-                            Text("Pick Audio", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
+                        ) { Text("Pick Audio", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                         if (selectedAudioUri != null) {
                             Box(
                                 modifier = Modifier
@@ -268,19 +279,16 @@ fun RecScreen(onClose: () -> Unit) {
                                     .border(1.dp, Color(0xFFFF2E63), RoundedCornerShape(12.dp))
                                     .clickable { MediaSelectionStore.setAudio(null) }
                                     .padding(horizontal = 12.dp, vertical = 8.dp)
-                            ) {
-                                Text("Clear", color = Color(0xFFFF2E63), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
+                            ) { Text("Clear", color = Color(0xFFFF2E63), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                         }
                     }
                 }
             }
         }
 
+        // Tool buttons
         Column(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 170.dp),
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 170.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             RecToolButton("PITCH", R.drawable.ic_rec_filter, selectedTool == RecTool.PITCH) { selectedTool = RecTool.PITCH }
@@ -289,35 +297,30 @@ fun RecScreen(onClose: () -> Unit) {
             RecToolButton("SOUNDS", R.drawable.ic_rec_audio, selectedTool == RecTool.SOUNDS) { selectedTool = RecTool.SOUNDS }
         }
 
+        // Bottom controls
         Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth(),
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(38.dp)
+                modifier = Modifier.fillMaxWidth().height(38.dp)
                     .background(Color(0xFF171923), RoundedCornerShape(19.dp)),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 listOf("0.3x", "0.5x", "1x", "2x", "3x").forEach { item ->
-                    val selected = speed == item
                     Box(
                         modifier = Modifier
-                            .background(if (selected) Color(0xFFFF2E63) else Color.Transparent, RoundedCornerShape(16.dp))
+                            .background(if (speed == item) Color(0xFFFF2E63) else Color.Transparent, RoundedCornerShape(16.dp))
                             .clickable { speed = item }
                             .padding(horizontal = 14.dp, vertical = 6.dp)
-                    ) {
-                        Text(item, color = Color.White, fontWeight = FontWeight.Bold)
-                    }
+                    ) { Text(item, color = Color.White, fontWeight = FontWeight.Bold) }
                 }
             }
 
             Spacer(Modifier.height(24.dp))
 
+            // Record button
             Box(
                 modifier = Modifier
                     .size(78.dp)
@@ -325,46 +328,39 @@ fun RecScreen(onClose: () -> Unit) {
                     .clickable {
                         val capture = videoCapture ?: return@clickable
                         if (isRecording) {
+                            // ── STOP ─────────────────────────────────────────
                             recording?.stop()
                             recording = null
-                            isRecording = false
-                            showSaveSheet = true
-                        } else {
-                            sec = 0
-                            val name = "tikTok_${System.currentTimeMillis()}"
-                            val contentValues = android.content.ContentValues().apply {
-                                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name)
-                                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
-                                put(android.provider.MediaStore.Video.Media.RELATIVE_PATH, "Movies/TikTokClone")
+                            scope.launch {
+                                delay(2000) // wait for CameraX to finalize MP4
+                                isRecording = false
+                                val finalUri = audioProcessor.stop()
+                                if (finalUri != null) {
+                                    latestRecordedUri = finalUri
+                                    MediaSelectionStore.setVideo(finalUri)
+                                }
+                                showSaveSheet = true
                             }
-                            val outputOptions = androidx.camera.video.MediaStoreOutputOptions.Builder(
-                                context.contentResolver,
-                                android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                            ).setContentValues(contentValues).build()
+                        } else {
+                            // ── START ─────────────────────────────────────────
+                            audioProcessor.configure(
+                                noiseOn = noiseOn,
+                                pitchValue = (pitchValue - 0.5f) * 20f,
+                                vocalVolume = vocalVolume,
+                                delayValue = delayValue,
+                                selectedEffect = selectedEffect,
+                                effectLevel = effectLevel,
+                                selectedSound = selectedSound,
+                                soundVolume = soundVolume
+                            )
+                            val videoPath = audioProcessor.start()
+                            val outputOptions = FileOutputOptions.Builder(File(videoPath)).build()
                             recording = capture.output
                                 .prepareRecording(context, outputOptions)
-                                .apply {
-                                    if (ContextCompat.checkSelfPermission(
-                                            context,
-                                            Manifest.permission.RECORD_AUDIO
-                                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                                    ) {
-                                        withAudioEnabled()
-                                    }
-                                }
                                 .start(ContextCompat.getMainExecutor(context)) { event ->
                                     when (event) {
-                                        is VideoRecordEvent.Start -> {
-                                            isRecording = true
-                                        }
-                                        is VideoRecordEvent.Finalize -> {
-                                            isRecording = false
-                                            val uri = event.outputResults.outputUri
-                                            if (uri != null) {
-                                                latestRecordedUri = uri
-                                                MediaSelectionStore.setVideo(uri)
-                                            }
-                                        }
+                                        is VideoRecordEvent.Start -> isRecording = true
+                                        is VideoRecordEvent.Finalize -> { /* handled in stop block */ }
                                     }
                                 }
                         }
@@ -380,59 +376,90 @@ fun RecScreen(onClose: () -> Unit) {
                         )
                 )
             }
-
             Spacer(Modifier.height(10.dp))
         }
 
+        // ── Save sheet ────────────────────────────────────────────────────────
         if (showSaveSheet) {
             Box(
                 modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f))
                     .clickable { showSaveSheet = false }
             )
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-                SaveVideoSheet(
-                    onNewVideo = { showSaveSheet = false; sec = 0; isRecording = false },
-                    onDiscard = { showSaveSheet = false },
-                    onSave = {
-                        showSaveSheet = false
-                        val savedUri = latestRecordedUri
-                        if (savedUri != null) {
-                            scope.launch {
-                                runCatching {
-                                    ServiceLocator.contentRepository.publishPost(
-                                        caption = "Saved clip",
-                                        mediaUrl = savedUri.toString(),
-                                        privacy = "private"
-                                    )
-                                }
-                            }
-                            runCatching {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_SEND).apply {
-                                        type = "video/*"
-                                        putExtra(Intent.EXTRA_STREAM, savedUri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                )
-                            }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0E0F14), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                        .padding(horizontal = 20.dp, vertical = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Handle bar
+                    Box(modifier = Modifier.width(40.dp).height(4.dp)
+                        .background(Color(0xFF3A3E53), RoundedCornerShape(2.dp)))
+                    Spacer(Modifier.height(20.dp))
+                    Text("Save your video?", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(20.dp))
+                    // Post to TikTok
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(54.dp)
+                            .background(Color(0xFF2A0D16), RoundedCornerShape(14.dp))
+                            .border(1.dp, Color(0xFFFF2E63), RoundedCornerShape(14.dp))
+                            .clickable { showSaveSheet = false; showPublishSheet = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Image(
+                                painter = painterResource(R.drawable.ic_tiktok),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Post to TikTok", color = Color(0xFFFF2E63), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         }
-                    },
-                    onPost = { showSaveSheet = false; showPublishSheet = true }
-                )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    // Save locally
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(54.dp)
+                            .background(Color(0xFF14151A), RoundedCornerShape(14.dp))
+                            .border(1.dp, Color(0xFF2A2E3F), RoundedCornerShape(14.dp))
+                            .clickable {
+                                showSaveSheet = false
+                                val savedUri = latestRecordedUri
+                                if (savedUri != null) {
+                                    scope.launch { SavedVideoRepository.importVideo(context, savedUri) }
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Save to Library", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    // Discard
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(54.dp)
+                            .clickable { showSaveSheet = false },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Discard", color = Color(0xFF6F738A), fontSize = 16.sp)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
             }
         }
 
+        // ── Publish sheet ─────────────────────────────────────────────────────
         if (showPublishSheet) {
             PublishSheet(
                 onDismiss = { showPublishSheet = false },
                 onPublish = { caption, privacy ->
                     showPublishSheet = false
-                    publishVm.publish(
-                        fileBytes = ByteArray(1024) { 0 },
-                        fileName = "recorded.mp4",
-                        caption = caption,
-                        privacy = privacy
-                    )
+                    val uri = latestRecordedUri
+                    if (uri != null) {
+                        publishVm.publishFromUri(uri, caption, privacy)
+                    } else {
+                        publishVm.publish(ByteArray(0), "recorded.mp4", caption, privacy)
+                    }
                 },
                 isBusy = publishState.stage == PublishStage.Uploading ||
                         publishState.stage == PublishStage.Publishing

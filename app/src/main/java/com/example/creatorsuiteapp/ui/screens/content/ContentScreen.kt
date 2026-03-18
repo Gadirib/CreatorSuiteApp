@@ -256,21 +256,14 @@ private fun VideoGridCell(
             Box(Modifier.fillMaxSize().background(Color(0xFF1A1D29)))
         }
 
-        Box(
+        Image(
+            painter = painterResource(R.drawable.ic_tiktok_badge),
+            contentDescription = null,
             modifier = Modifier
-                .padding(8.dp).size(24.dp)
-                .background(
-                    if (video.postedToTikTok) Color(0xFFFF2E63) else Color(0xFF2A0E1B),
-                    RoundedCornerShape(12.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Image(
-                painterResource(R.drawable.ic_tiktok_badge), null,
-                modifier = Modifier.size(14.dp),
-                colorFilter = ColorFilter.tint(Color.White)
-            )
-        }
+                .padding(8.dp)
+                .size(24.dp)
+                .align(Alignment.TopStart)
+        )
 
         val durationText = formatDuration(video.duration)
         Text(
@@ -411,20 +404,13 @@ private fun VideoActionSheet(
                         )
                     }
 
-                    Box(
+                    Image(
+                        painter = painterResource(R.drawable.ic_tiktok_badge),
+                        contentDescription = null,
                         modifier = Modifier
                             .padding(8.dp)
                             .size(22.dp)
-                            .background(Color(0xFFFF2E63), RoundedCornerShape(11.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Image(
-                            painterResource(R.drawable.ic_tiktok_badge),
-                            null,
-                            modifier = Modifier.size(11.dp),
-                            colorFilter = ColorFilter.tint(Color.White)
-                        )
-                    }
+                    )
 
                     Image(
                         painter = painterResource(R.drawable.ic_expand),

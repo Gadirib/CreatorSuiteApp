@@ -25,10 +25,57 @@ class TikTokUploadRepository(private val context: Context) {
     private val AID = "1988"
     private val UA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
+    // Custom DNS resolver — bypasses VPN DNS mangling for TikTok CDN hosts
+    private val customDns = object : okhttp3.Dns {
+        // Real IPs for tos-quic-awsfr.tiktokcdn.com (AWS Frankfurt)
+        // Resolved via: nslookup tos-quic-awsfr.tiktokcdn.com
+        private val knownHosts = mapOf(
+            // AWS Frankfurt
+            "tos-quic-awsfr.tiktokcdn.com" to listOf(
+                java.net.InetAddress.getByName("35.157.240.29"),
+                java.net.InetAddress.getByName("52.59.26.89"),
+                java.net.InetAddress.getByName("52.59.97.192"),
+                java.net.InetAddress.getByName("3.125.150.187"),
+                java.net.InetAddress.getByName("3.122.148.228"),
+                java.net.InetAddress.getByName("35.156.63.11"),
+                java.net.InetAddress.getByName("3.125.187.169"),
+                java.net.InetAddress.getByName("3.125.27.254"),
+                java.net.InetAddress.getByName("3.122.138.167"),
+                java.net.InetAddress.getByName("35.157.183.163"),
+                java.net.InetAddress.getByName("3.125.71.96"),
+                java.net.InetAddress.getByName("3.125.143.160")
+            ),
+            // AWS Singapore — resolve on Mac: nslookup tos-quic-awssg.tiktokcdn.com
+            "tos-quic-awssg.tiktokcdn.com" to listOf(
+                java.net.InetAddress.getByName("13.213.0.1")  // placeholder — update after nslookup
+            )
+        )
+
+        override fun lookup(hostname: String): List<java.net.InetAddress> {
+            // Check known hosts first
+            knownHosts[hostname]?.let {
+                android.util.Log.d("TikTokUpload", "DNS override for $hostname")
+                return it
+            }
+            // Also handle mangled hostnames (dash instead of dot before tiktokcdn)
+            val fixed = hostname.replace("-tiktokcdn.com", ".tiktokcdn.com")
+            if (fixed != hostname) {
+                android.util.Log.d("TikTokUpload", "DNS fix: $hostname → $fixed")
+                knownHosts[fixed]?.let { return it }
+            }
+            // Fall back to system DNS
+            return okhttp3.Dns.SYSTEM.lookup(hostname)
+        }
+    }
+
     private val client = OkHttpClient.Builder()
-        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
-        .writeTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+        .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(300, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(300, java.util.concurrent.TimeUnit.SECONDS)
+        .callTimeout(600, java.util.concurrent.TimeUnit.SECONDS)
+        .dns(customDns)
+        // Bypass any system proxy (Proxy Master, etc.) for direct connection
+        .proxy(java.net.Proxy.NO_PROXY)
         .build()
 
     private fun getCookie(name: String): String =
@@ -48,6 +95,8 @@ class TikTokUploadRepository(private val context: Context) {
         .add("Accept", "application/json, text/plain, */*")
         .build()
 
+    // ── Step 1 ────────────────────────────────────────────────────────────────
+    // iOS confirmed: keys in video_token_v5, field "secret_acess_key" (one 's')
     data class AwsCredentials(
         val accessKeyId: String,
         val secretAccessKey: String,
@@ -81,6 +130,8 @@ class TikTokUploadRepository(private val context: Context) {
         ).also { Log.d(TAG, "Step1 OK keyId=${it.accessKeyId.take(16)}...") }
     }
 
+    // ── Step 2 ────────────────────────────────────────────────────────────────
+    // iOS confirmed URL + fields
     data class UploadSlot(
         val vid: String,
         val storeUri: String,
@@ -134,8 +185,10 @@ class TikTokUploadRepository(private val context: Context) {
 
         val storeInfo = node.getJSONArray("StoreInfos").getJSONObject(0)
         val storeUri = storeInfo.getString("StoreUri")
+        // Use the host exactly as TikTok provides it
+        // tos-quic-* hostnames work over HTTPS/TCP too — QUIC is just preferred protocol
         val uploadHost = node.optString("UploadHost", "").takeIf { it.isNotEmpty() }
-            ?: "${storeUri.substringBefore("/")}.tiktokcdn.com"
+            ?: "tos-quic-awsfr.tiktokcdn.com"
         val sessionKey = node.optString("SessionKey",
             json.getJSONObject("Result").getJSONObject("InnerUploadAddress")
                 .optString("SessionKey", ""))
@@ -149,6 +202,11 @@ class TikTokUploadRepository(private val context: Context) {
         ).also { Log.d(TAG, "Step2 OK vid=${it.vid} host=${it.uploadHost}") }
     }
 
+    // ── Step 3 ────────────────────────────────────────────────────────────────
+    // iOS confirmed multipart flow:
+    // 3a: POST ?uploads → XML <UploadId>
+    // 3b: POST ?partNumber=N&uploadID=id  with Content-Crc32 header
+    // 3c: POST ?uploadID=id  body: "1:crc1,2:crc2,..."
     suspend fun uploadChunks(
         slot: UploadSlot,
         videoBytes: ByteArray,
@@ -157,6 +215,7 @@ class TikTokUploadRepository(private val context: Context) {
         val baseUrl = "https://${slot.uploadHost}/${slot.storeUri}"
         Log.d(TAG, "Step3 baseUrl=$baseUrl size=${videoBytes.size}")
 
+        // 3a: Init multipart
         val initResp = client.newCall(
             Request.Builder().url("$baseUrl?uploads")
                 .addHeader("Authorization", slot.uploadAuth)
@@ -167,10 +226,20 @@ class TikTokUploadRepository(private val context: Context) {
         val initBody = initResp.body?.string() ?: throw Exception("Empty multipart init")
         Log.d(TAG, "Step3 init HTTP ${initResp.code}: ${initBody.take(200)}")
 
-        val uploadId = parseXmlTag(initBody, "UploadId")
-            ?: throw Exception("No UploadId in: $initBody")
+        // Response is JSON: {"payload":{"uploadID":"..."}}
+        val uploadId = try {
+            org.json.JSONObject(initBody)
+                .getJSONObject("payload")
+                .getString("uploadID")
+        } catch (e: Exception) {
+            // Fallback: try XML <UploadId> tag
+            parseXmlTag(initBody, "UploadId")
+                ?: parseXmlTag(initBody, "uploadID")
+                ?: throw Exception("No UploadId in: $initBody")
+        }
         Log.d(TAG, "Step3 uploadId=$uploadId")
 
+        // 3b: Upload chunks
         val chunkSize = 5 * 1024 * 1024
         val totalChunks = (videoBytes.size + chunkSize - 1) / chunkSize
         val crcList = mutableListOf<Long>()
@@ -196,6 +265,7 @@ class TikTokUploadRepository(private val context: Context) {
             withContext(Dispatchers.Main) { onProgress(((i + 1) * 100) / totalChunks) }
         }
 
+        // 3c: Complete multipart
         val completeBody = crcList.mapIndexed { i, crc -> "${i + 1}:%08x".format(crc) }.joinToString(",")
         val completeResp = client.newCall(
             Request.Builder()
@@ -230,6 +300,8 @@ class TikTokUploadRepository(private val context: Context) {
         Regex("<$tag>(.*?)</$tag>").find(xml)?.groupValues?.get(1)
     }
 
+    // ── Step 4 ────────────────────────────────────────────────────────────────
+    // iOS confirmed: POST with body {"SessionKey":"...","Functions":[]}
     suspend fun commitUpload(creds: AwsCredentials, slot: UploadSlot): String = withContext(Dispatchers.IO) {
         val now = Date()
         val dateTimeStr = awsDateTime(now)
@@ -262,70 +334,140 @@ class TikTokUploadRepository(private val context: Context) {
         ).execute()
 
         val body = resp.body?.string() ?: throw Exception("Empty CommitUploadInner response")
-        Log.d(TAG, "Step4 HTTP ${resp.code}: ${body.take(300)}")
+        Log.d(TAG, "Step4 HTTP ${resp.code}: ${body.take(500)}")
 
         val json = JSONObject(body)
-        val videoId = json.optJSONObject("Result")?.optString("Vid", "")
+        val result = json.optJSONObject("Result")
+        val videoId = result?.optString("Vid", "")
             ?.takeIf { it.isNotEmpty() } ?: slot.vid
+        // Log all keys in Result to find SessionKey or other useful fields
+        result?.keys()?.forEach { key ->
+            Log.d(TAG, "Step4 Result.$key = ${result.opt(key).toString().take(100)}")
+        }
         Log.d(TAG, "Step4 OK videoId=$videoId")
         videoId
     }
 
+    // ── Step 5 ────────────────────────────────────────────────────────────────
+    // iOS confirmed: primary /api/v1/item/create/ + X-Secsdk headers
+    // Fallback: /tiktok/web/project/post/v1/
     suspend fun publishPost(videoId: String, caption: String, privacy: String): String = withContext(Dispatchers.IO) {
         val csrf = getCookie("tt_csrf_token")
+        val sessionId = getCookie("sessionid")
+        val allCookieStr = allCookies()
+        Log.d(TAG, "Step5 csrf=${csrf.take(8)}... sessionId=${sessionId.take(8)}...")
+        // Log all cookie names
+        val cookieNames = allCookieStr.split(";").map { it.trim().substringBefore("=") }
+        Log.d(TAG, "Step5 cookie names: $cookieNames")
+        val msToken = getCookie("msToken")
+        val tt_webid = getCookie("tt_webid")
+        Log.d(TAG, "Step5 msToken=${msToken.take(20)}... tt_webid=${tt_webid.take(20)}...")
         val privacyType = when (privacy.lowercase()) { "public" -> 0; "friends" -> 1; else -> 2 }
 
+        // Primary
         try {
-            val url = "$BASE/api/v1/item/create/" +
+            // Try multiple publish endpoint formats
+            val msToken = getCookie("msToken")
+            val tt_webid = getCookie("s_v_web_id")
+            // iOS team confirmed: ALL params must be in URL query string, body is EMPTY
+            val captionEnc = java.net.URLEncoder.encode(caption, "UTF-8")
+            val primaryUrl = "$BASE/api/v1/item/create/" +
                     "?aid=$AID" +
                     "&video_id=$videoId" +
-                    "&text=${java.net.URLEncoder.encode(caption, "UTF-8")}" +
                     "&visibility_type=$privacyType" +
-                    "&channel=tiktok_web" +
-                    "&device_platform=web" +
-                    "&app_name=tiktok_web"
+                    "&poster_delay=0" +
+                    "&text=$captionEnc" +
+                    "&text_extra=%5B%5D" +
+                    "&allow_comment=1" +
+                    "&allow_duet=1" +
+                    "&allow_stitch=1" +
+                    "&sound_exemption=0"
 
-            val resp = client.newCall(
-                Request.Builder().url(url)
+            Log.d(TAG, "Step5 primary URL: $primaryUrl")
+            val primaryResp = client.newCall(
+                Request.Builder().url(primaryUrl)
                     .headers(baseHeaders())
-                    .addHeader("X-CSRFToken", csrf)
+                    // iOS confirmed: NO X-CSRFToken, only these two:
                     .addHeader("X-Secsdk-Csrf-Request", "1")
                     .addHeader("X-Secsdk-Csrf-Version", "1.2.8")
-                    .post(ByteArray(0).toRequestBody("application/json".toMediaType()))
+                    .addHeader("Content-Type", "application/x-www-form-urlencoded")
+                    .post("".toRequestBody("application/x-www-form-urlencoded".toMediaType()))
                     .build()
             ).execute()
-            val body = resp.body?.string() ?: ""
-            Log.d(TAG, "Step5 primary HTTP ${resp.code}: ${body.take(300)}")
-            val json = JSONObject(body)
-            if (json.optInt("status_code", -1) == 0) {
-                return@withContext json.optJSONObject("data")?.optString("item_id", videoId) ?: videoId
+            val primaryBody = primaryResp.body?.string() ?: ""
+            Log.d(TAG, "Step5 primary HTTP ${primaryResp.code}: $primaryBody")
+            val primaryJson = runCatching { JSONObject(primaryBody) }.getOrNull()
+            if (primaryJson?.optInt("status_code", -1) == 0) {
+                return@withContext primaryJson.optJSONObject("data")?.optString("item_id", videoId) ?: videoId
             }
             Log.w(TAG, "Primary failed, trying fallback")
         } catch (e: Exception) {
             Log.w(TAG, "Primary exception: ${e.message}")
         }
 
+        // Fallback
+        val creationId = UUID.randomUUID().toString().replace("-", "").take(21)
+
+        // Step FB1: Create project
+        val projectUrl = "$BASE/api/v1/web/project/create/?creation_id=$creationId&type=1&aid=$AID"
+        Log.d(TAG, "Step5 fallback project create: $projectUrl")
+        val projectResp = client.newCall(
+            Request.Builder().url(projectUrl)
+                .headers(baseHeaders())
+                .addHeader("X-Secsdk-Csrf-Request", "1")
+                .addHeader("X-Secsdk-Csrf-Version", "1.2.8")
+                .addHeader("Content-Type", "application/x-www-form-urlencoded")
+                .post("".toRequestBody("application/x-www-form-urlencoded".toMediaType()))
+                .build()
+        ).execute()
+        Log.d(TAG, "Step5 fallback project HTTP ${projectResp.code}: ${projectResp.body?.string()?.take(200)}")
+
+        // Step FB2: Publish via project/post — exact iOS team format
         val fbBody = JSONObject().apply {
             put("post_common_info", JSONObject().apply {
-                put("creation_id", UUID.randomUUID().toString().replace("-", ""))
+                put("creation_id", creationId)
                 put("enter_post_page_from", 1)
                 put("post_type", 3)
             })
-            put("feature_common_info_list", org.json.JSONArray())
+            put("feature_common_info_list", org.json.JSONArray().apply {
+                put(JSONObject().apply {
+                    put("geofencing_regions", org.json.JSONArray())
+                    put("playlist_name", "")
+                    put("playlist_id", "")
+                    put("tcm_params", "{\"commerce_toggle_info\":{}}")
+                    put("sound_exemption", 0)
+                    put("anchors", org.json.JSONArray())
+                    put("vedit_common_info", JSONObject().apply {
+                        put("draft", "")
+                        put("video_id", videoId)
+                    })
+                    put("privacy_setting_info", JSONObject().apply {
+                        put("visibility_type", privacyType)
+                        put("allow_duet", 1)
+                        put("allow_stitch", 1)
+                        put("allow_comment", 1)
+                    })
+                })
+            })
             put("single_post_req_list", org.json.JSONArray().apply {
                 put(JSONObject().apply {
-                    put("video_info", JSONObject().apply { put("video_id", videoId) })
-                    put("content_info", JSONObject().apply {
+                    put("batch_index", 0)
+                    put("video_id", videoId)
+                    put("is_long_video", 0)
+                    put("single_post_feature_info", JSONObject().apply {
                         put("text", caption)
-                        put("privacy_level_new", privacyType)
+                        put("text_extra", org.json.JSONArray())
+                        put("markup_text", caption)
+                        put("music_info", JSONObject())
+                        put("poster_delay", 0)
                     })
-                    put("is_aigc", false)
                 })
             })
         }
+        val msTokenFb = getCookie("msToken")
         val fbResp = client.newCall(
             Request.Builder()
-                .url("$BASE/tiktok/web/project/post/v1/?app_name=tiktok_web&channel=tiktok_web&device_platform=web&aid=$AID")
+                .url("$BASE/tiktok/web/project/post/v1/?app_name=tiktok_web&channel=tiktok_web&device_platform=web&aid=$AID&msToken=${java.net.URLEncoder.encode(msTokenFb, "UTF-8")}")
                 .headers(baseHeaders())
                 .addHeader("X-CSRFToken", csrf)
                 .addHeader("X-Secsdk-Csrf-Request", "1")
@@ -335,6 +477,7 @@ class TikTokUploadRepository(private val context: Context) {
                 .build()
         ).execute()
         val fbRespBody = fbResp.body?.string() ?: throw Exception("Empty fallback response")
+        Log.d(TAG, "Step5 fallback body sent: ${fbBody.toString().take(500)}")
         Log.d(TAG, "Step5 fallback HTTP ${fbResp.code}: ${fbRespBody.take(300)}")
 
         val fbJson = JSONObject(fbRespBody)
@@ -344,6 +487,7 @@ class TikTokUploadRepository(private val context: Context) {
         throw Exception("Publish failed: $fbRespBody")
     }
 
+    // ── Full pipeline ─────────────────────────────────────────────────────────
     suspend fun uploadAndPublish(
         videoBytes: ByteArray,
         caption: String,
@@ -362,13 +506,24 @@ class TikTokUploadRepository(private val context: Context) {
         onProgress("Confirming upload…", 87)
         val videoId = commitUpload(creds, slot)
 
+        // Wait for TikTok to process the video before publishing
+        onProgress("Processing video…", 90)
+        kotlinx.coroutines.delay(3000)
+
         onProgress("Publishing…", 93)
-        val itemId = publishPost(videoId, caption, privacy)
+        // Try with both the commit videoId AND the slot vid
+        val itemId = try {
+            publishPost(videoId, caption, privacy)
+        } catch (e: Exception) {
+            Log.w(TAG, "publishPost with videoId failed, trying slot.vid: ${e.message}")
+            publishPost(slot.vid, caption, privacy)
+        }
 
         onProgress("Done!", 100)
         PublishResult(postId = itemId, status = "success")
     }
 
+    // ── AWS Sig V4 ────────────────────────────────────────────────────────────
     private fun buildAuthHeader(
         creds: AwsCredentials,
         dateTimeStr: String,

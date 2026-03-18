@@ -42,6 +42,7 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
 
+    // ✅ Read username directly from TikTokSessionManager — not ContentViewModel
     val session = remember { TikTokSessionManager.getSession(context) }
     val username = session?.username ?: "Username"
     val avatarUrl = session?.avatarUrl
@@ -74,6 +75,7 @@ fun SettingsScreen(
             Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF22252C)))
             Spacer(Modifier.height(14.dp))
 
+            // ── Profile card ──────────────────────────────────────────────────────
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -83,6 +85,7 @@ fun SettingsScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
 
+                    // Avatar — use network image if available, fallback to placeholder
                     if (!avatarUrl.isNullOrEmpty()) {
                         coil.compose.AsyncImage(
                             model = avatarUrl,
@@ -103,26 +106,33 @@ fun SettingsScreen(
                     Spacer(Modifier.width(12.dp))
 
                     Column(modifier = Modifier.weight(1f)) {
+                        // ✅ Show real TikTok username with @ prefix
                         Text("Hey, @$username 👋", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
 
                         Spacer(Modifier.height(6.dp))
 
+                        // ✅ Real logout — clears session AND cookies so next login requires credentials
                         Row(
                             modifier = Modifier
                                 .background(Color(0xFF1A1D29), RoundedCornerShape(16.dp))
                                 .border(1.dp, Color(0xFF2C3042), RoundedCornerShape(16.dp))
                                 .clickable {
+                                    // 1. Clear saved session (username, secUid, avatar)
                                     TikTokSessionManager.clearSession(context)
 
+                                    // 2. Clear ALL TikTok cookies — this is the key step
+                                    // Without this, WebView remembers the session and skips login
                                     val cm = CookieManager.getInstance()
                                     cm.removeAllCookies(null)
                                     cm.flush()
 
+                                    // 3. Clear in-memory video list (don't show previous account's videos)
                                     kotlinx.coroutines.GlobalScope.launch {
                                         SavedVideoRepository.switchAccount(context)
                                     }
                                     RepostStatsRepository.switchAccount(context)
 
+                                    // 4. Navigate to login screen
                                     onLoggedOut()
                                 }
                                 .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -138,19 +148,34 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(16.dp))
 
+            // ── Performance card — account-scoped real data ───────────────────────
+            // Load stats for current account
             val repostStats by RepostStatsRepository.stats.collectAsState()
             LaunchedEffect(Unit) { RepostStatsRepository.load(context) }
             val totalCleaned = repostStats?.deletedCount ?: 0
 
+            // Load per-day deletions for last 7 days from cleaner_prefs
             val prefs = context.getSharedPreferences("cleaner_prefs", Context.MODE_PRIVATE)
             val accountKey = run {
                 val secUid = context.getSharedPreferences("tiktok_session", Context.MODE_PRIVATE)
                     .getString("secUid", null)
                 if (!secUid.isNullOrBlank()) secUid.takeLast(16) else "default"
             }
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            val todayStr = sdf.format(java.util.Date())
+
+            // Today's count — refreshes every time screen is visible
+            val todayCount = prefs.getInt("count_$accountKey", 0).let { count ->
+                val savedDate = prefs.getString("date_$accountKey", "")
+                if (savedDate == todayStr) count else 0
+            }
+            val dailyLimit = 50
+            val remaining = (dailyLimit - todayCount).coerceAtLeast(0)
+            val usedFraction = (todayCount.toFloat() / dailyLimit).coerceIn(0f, 1f)
+
+            // Read last 7 days counts
             val dayLabels = listOf("M", "T", "W", "T", "F", "S", "S")
             val calendar = java.util.Calendar.getInstance()
-            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
             val dailyCounts = (6 downTo 0).map { daysAgo ->
                 calendar.time = java.util.Date()
                 calendar.add(java.util.Calendar.DAY_OF_YEAR, -daysAgo)
@@ -166,6 +191,7 @@ fun SettingsScreen(
                     .border(1.dp, Color(0xFF2A2E3E), RoundedCornerShape(20.dp))
                     .padding(14.dp)
             ) {
+                // ── Header row: Today + Total ─────────────────────────────────────
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Recent performance", color = Color(0xFF7D8198), fontSize = 11.sp, letterSpacing = 2.sp)
@@ -181,12 +207,81 @@ fun SettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
+                // ── Today's daily counter ─────────────────────────────────────────
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F111A), RoundedCornerShape(14.dp))
+                        .padding(12.dp)
+                ) {
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("TODAY", color = Color(0xFF7D8198), fontSize = 10.sp, letterSpacing = 2.sp)
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    "$todayCount cleaned",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Resets at midnight",
+                                    color = Color(0xFF6F738A),
+                                    fontSize = 11.sp
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    "$remaining left",
+                                    color = if (remaining > 10) Color(0xFF2EE6A6) else Color(0xFFFF2E63),
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Text(
+                                    "of $dailyLimit daily",
+                                    color = Color(0xFF7D8198),
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        // Progress bar
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .background(Color(0xFF1D2130), RoundedCornerShape(3.dp))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(usedFraction)
+                                    .height(6.dp)
+                                    .background(
+                                        when {
+                                            usedFraction < 0.7f -> Color(0xFF2EE6A6)
+                                            usedFraction < 0.9f -> Color(0xFFFFBB00)
+                                            else -> Color(0xFFFF2E63)
+                                        },
+                                        RoundedCornerShape(3.dp)
+                                    )
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color(0xFF0F111A), RoundedCornerShape(14.dp))
                         .padding(12.dp)
                 ) {
+                    // Bar chart — one bar per day, height proportional to deletions
                     Row(
                         modifier = Modifier.fillMaxWidth().height(120.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -194,7 +289,7 @@ fun SettingsScreen(
                     ) {
                         dailyCounts.forEachIndexed { i, count ->
                             val fraction = (count / maxCount).coerceIn(0f, 1f)
-                            val barHeight = (fraction * 100f + 4f).dp
+                            val barHeight = (fraction * 100f + 4f).dp // min 4dp so bar is always visible
                             Box(
                                 modifier = Modifier
                                     .width(28.dp)
@@ -224,9 +319,10 @@ fun SettingsScreen(
             SettingsRow("Rate", Icons.Outlined.Star, onClick = { showRatingDialog = true })
             Spacer(Modifier.height(10.dp))
             SettingsRow("Contact us", Icons.Outlined.Email)
-        }
-    }
+        } // end Column
+    } // end Box wrapper
 
+    // Full-screen overlays — rendered outside scroll/column
     if (showRatingDialog) {
         RatingDialog(
             selectedStars = selectedStars,
@@ -262,6 +358,7 @@ private fun SettingsRow(title: String, icon: androidx.compose.ui.graphics.vector
     }
 }
 
+// ── Rating Screen (full screen, matches Figma) ───────────────────────────────
 @Composable
 private fun RatingDialog(
     selectedStars: Int,
@@ -273,6 +370,7 @@ private fun RatingDialog(
     val starGold = Color(0xFFFFBB00)
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // Background — dark gradient with warm overlay matching Figma
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -282,6 +380,7 @@ private fun RatingDialog(
                     )
                 )
         )
+        // Warm amber overlay top half — mimics the lit photo bg
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -301,6 +400,7 @@ private fun RatingDialog(
         ) {
             Spacer(Modifier.height(52.dp))
 
+            // MAYBE LATER
             Text(
                 "MAYBE LATER",
                 color = Color.White.copy(0.9f),
@@ -317,6 +417,7 @@ private fun RatingDialog(
 
             Spacer(Modifier.weight(1f))
 
+            // HOW IS THE VIBE? — big bold text
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.Start
@@ -341,6 +442,7 @@ private fun RatingDialog(
 
             Spacer(Modifier.height(28.dp))
 
+            // Star boxes
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -375,6 +477,7 @@ private fun RatingDialog(
 
             Spacer(Modifier.height(20.dp))
 
+            // Rate button
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -399,12 +502,14 @@ private fun RatingDialog(
         }
     }
 }
+// ── Thank You Screen (full screen) ───────────────────────────────────────────
 @Composable
 private fun ThankYouOverlay(stars: Int, onDismiss: () -> Unit) {
     val accentPink = Color(0xFFFF2E63)
     val starGold = Color(0xFFFFBB00)
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // Same background style as rating screen
         Box(
             modifier = Modifier.fillMaxSize().background(
                 androidx.compose.ui.graphics.Brush.verticalGradient(
@@ -412,6 +517,7 @@ private fun ThankYouOverlay(stars: Int, onDismiss: () -> Unit) {
                 )
             )
         )
+        // Green success tint
         Box(
             modifier = Modifier.fillMaxSize().background(
                 androidx.compose.ui.graphics.Brush.radialGradient(
@@ -427,10 +533,12 @@ private fun ThankYouOverlay(stars: Int, onDismiss: () -> Unit) {
         ) {
             Spacer(Modifier.height(52.dp))
 
+            // MAYBE LATER placeholder (invisible, keeps layout consistent)
             Text("", modifier = Modifier.height(32.dp))
 
             Spacer(Modifier.weight(0.8f))
 
+            // Big checkmark
             Box(
                 modifier = Modifier
                     .size(120.dp)
@@ -444,6 +552,7 @@ private fun ThankYouOverlay(stars: Int, onDismiss: () -> Unit) {
 
             Spacer(Modifier.height(32.dp))
 
+            // THANK YOU text
             Text(
                 "THANK YOU",
                 color = Color.White,
@@ -461,6 +570,7 @@ private fun ThankYouOverlay(stars: Int, onDismiss: () -> Unit) {
 
             Spacer(Modifier.height(24.dp))
 
+            // Stars display
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 (1..5).forEach { star ->
                     Text(
@@ -487,6 +597,7 @@ private fun ThankYouOverlay(stars: Int, onDismiss: () -> Unit) {
 
             Spacer(Modifier.weight(1f))
 
+            // Close button
             Box(
                 modifier = Modifier
                     .fillMaxWidth().height(58.dp)

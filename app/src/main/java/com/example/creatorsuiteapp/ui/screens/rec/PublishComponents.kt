@@ -142,6 +142,7 @@ fun PublishStatusOverlay(
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Status icon / spinner
             when (state.stage) {
                 PublishStage.Uploading, PublishStage.Publishing -> {
                     CircularProgressIndicator(
@@ -163,6 +164,7 @@ fun PublishStatusOverlay(
                         fontSize = 13.sp
                     )
                     Spacer(Modifier.height(14.dp))
+                    // Progress bar
                     if (state.progress > 0) {
                         LinearProgressIndicator(
                             progress = { state.progress / 100f },
@@ -191,23 +193,42 @@ fun PublishStatusOverlay(
                     ) { Text("Done", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
                 }
                 PublishStage.Error -> {
-                    Text("❌", fontSize = 40.sp)
-                    Spacer(Modifier.height(12.dp))
+                    // Error icon
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .background(Color(0xFF2A0A0A), androidx.compose.foundation.shape.CircleShape)
+                            .border(2.dp, Color(0xFFFF2E63).copy(0.4f), androidx.compose.foundation.shape.CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("✕", fontSize = 32.sp, color = Color(0xFFFF2E63), fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.height(16.dp))
                     Text("Upload Failed", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(10.dp))
+                    // User-friendly message (no error codes)
                     Text(
-                        text = state.message ?: "Unknown error",
-                        color = Color(0xFFFF2E63),
-                        fontSize = 13.sp
+                        text = state.message ?: "Something went wrong. Please try again.",
+                        color = Color(0xFFA3A8BD),
+                        fontSize = 14.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = 20.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                    Spacer(Modifier.height(24.dp))
+                    // Retry suggestion
+                    Text(
+                        "Check your connection and try again",
+                        color = Color(0xFF6F738A),
+                        fontSize = 12.sp
                     )
                     Spacer(Modifier.height(20.dp))
                     Box(
                         modifier = Modifier.fillMaxWidth().height(50.dp)
-                            .background(Color(0xFF141722), RoundedCornerShape(14.dp))
-                            .border(1.dp, Color(0xFF2D3348), RoundedCornerShape(14.dp))
+                            .background(Color(0xFFFF2E63), RoundedCornerShape(14.dp))
                             .clickable { onClose() },
                         contentAlignment = Alignment.Center
-                    ) { Text("Close", color = Color.White, fontWeight = FontWeight.SemiBold) }
+                    ) { Text("Got it", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
                 }
                 else -> {}
             }
